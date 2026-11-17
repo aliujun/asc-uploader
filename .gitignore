@@ -1,0 +1,25 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 本地运行数据（配置/密钥索引/IPA缓存/任务记录，含敏感信息）
+.data/
+
+# Trae 工具文档与临时产物
+.trae/
+.trae-html-share-packages/
+
+# 证书与密钥类文件（防止误提交）
+*.p8
+*.pem
+*.p12
+*.csr
+.cer
+*.ipa
+*.mobileprovision
+
+# 系统与日志文件
+Thumbs.db
+.DS_Store
+*.log
+npm-debug.log*

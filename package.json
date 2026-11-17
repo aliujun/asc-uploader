@@ -1,0 +1,37 @@
+{
+  "name": "asc-ipa-uploader",
+  "version": "1.0.0",
+  "description": "应用上架助手：Windows 下的 App Store Connect IPA 上传工具（TestFlight 分发、Build 查询、多配置管理、CSR/p12 证书工具）",
+  "main": "src/index.js",
+  "bin": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "pkg": "pkg . --output dist/应用上架助手.exe"
+  },
+  "keywords": [
+    "app-store-connect",
+    "ipa",
+    "upload",
+    "testflight"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "bplist-parser": "^0.3.2",
+    "express": "^4.21.2",
+    "node-forge": "^1.3.1",
+    "undici": "^7.30.2",
+    "yauzl": "^3.2.0"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.4.0"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "targets": [
+      "node22.23.4-win-x64"
+    ],
+    "outputPath": "dist"
+  }
+}

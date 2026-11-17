@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>应用上架助手</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header class="topbar">
+        <h1>应用上架助手</h1>
+        <span class="subtitle">App Store Connect 上传 · TestFlight 分发 · 证书工具</span>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab active" data-tab="upload">上传</button>
+        <button class="tab" data-tab="configs">配置管理</button>
+        <button class="tab" data-tab="builds">Builds</button>
+        <button class="tab" data-tab="certs">证书工具</button>
+        <button class="tab" data-tab="connectivity">连通性</button>
+    </nav>
+
+    <main>
+        <!-- 上传 Tab -->
+        <section id="tab-upload" class="tab-panel active">
+            <div class="card">
+                <h2>1. 选择 IPA 文件</h2>
+                <div id="drop-zone" class="drop-zone">
+                    拖拽 .ipa 文件到此处，或
+                    <label class="file-label">点击选择<input type="file" id="ipa-input" accept=".ipa" hidden></label>
+                </div>
+                <div id="ipa-meta" class="ipa-meta hidden"></div>
+                <div class="progress-wrap hidden" id="local-progress-wrap">
+                    <span>本地传输</span>
+                    <div class="progress">
+                        <div id="local-progress-bar" class="progress-bar"></div>
+                    </div>
+                    <em id="local-progress-text">0%</em>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>2. 选择配置与分发选项</h2>
+                <div class="form-row">
+                    <label>使用配置</label>
+                    <select id="upload-config"></select>
+                </div>
+                <div class="form-row">
+                    <label class="switch-label">
+                        <input type="checkbox" id="auto-testflight">
+                        上传完成后自动加入 TestFlight 测试组（默认关闭）
+                    </label>
+                </div>
+                <div id="beta-group-block" class="form-row hidden">
+                    <label>测试组（可多选）</label>
+                    <div id="beta-groups" class="checkbox-list">请先在上方选择配置</div>
+                </div>
+                <button id="submit-task" class="primary" disabled>提交上传任务</button>
+            </div>
+
+            <div class="card">
+                <h2>3. 任务进度</h2>
+                <div id="task-progress" class="task-progress">
+                    <p class="muted">暂无进行中的任务，提交后在此实时展示进度。</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 配置管理 Tab -->
+        <section id="tab-configs" class="tab-panel">
+            <div class="card">
+                <h2>网络代理</h2>
+                <p class="muted">国内网络环境直连 Apple API 可能失败，Node.js 也不会使用系统代理。请填写代理地址（如
+                    http://127.0.0.1:7890），留空则直连。所有请求（含分块上传）均会走该代理。可在“连通性”页测试是否可达。</p>
+                <div class="form-row inline">
+                    <input id="setting-proxy" placeholder="http://127.0.0.1:7890（留空为直连）">
+                    <button id="btn-save-proxy" class="primary">保存</button>
+                </div>
+            </div>
+            <div class="card">
+                <h2>配置列表 <button id="btn-new-config" class="small">新增配置</button></h2>
+                <div id="config-list" class="config-list"></div>
+                <details class="help">
+                    <summary>如何获取 API 密钥（.p8 文件）</summary>
+                    <ol>
+                        <li>登录 <a href="https://appstoreconnect.apple.com/access/integrations/api" target="_blank">App
+                                Store Connect API 密钥页</a>（用户和访问 → 集成 → App Store Connect API → 团队密钥）；</li>
+                        <li>点击“生成 API 密钥”，需要 <b>App Manager</b> 及以上角色；</li>
+                        <li>记下 <b>Key ID</b> 和页面顶部的 <b>Issuer ID</b>；</li>
+                        <li>点击“下载”得到 <code>AuthKey_XXXXXXXXXX.p8</code>（<b>只能下载一次</b>，丢失需吊销重新生成）；</li>
+                        <li>注意区分：.p12 分发证书用于签名（本工具“证书工具”页可生成）、App 专用密码是旧版 altool 用的，均不能用于此处。</li>
+                    </ol>
+                </details>
+            </div>
+
+            <div id="config-form-modal" class="modal hidden">
+                <div class="modal-box">
+                    <h3 id="config-form-title">新增配置</h3>
+                    <div class="form-row">
+                        <label>配置名称<span class="req">*</span></label>
+                        <input id="cf-name" placeholder="如：公司主账号" autocomplete="off">
+                    </div>
+                    <div class="form-row">
+                        <label>Issuer ID
+                            <span class="hint-wrap">
+                                <button type="button" class="hint-icon" aria-label="Issuer ID 说明"><svg width="14"
+                                        height="14" viewBox="0 0 16 16" fill="none">
+                                        <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3" />
+                                        <circle cx="8" cy="4.9" r="0.95" fill="currentColor" />
+                                        <path d="M8 7.4v3.9" stroke="currentColor" stroke-width="1.3"
+                                            stroke-linecap="round" />
+                                    </svg></button>
+                                <span class="hint-tip">标识创建认证令牌（JWT）的发放者，即你的 App Store Connect 组织。在 API 密钥页面顶部查看。<a
+                                        href="https://developer.apple.com/go/?id=api-issuer-id"
+                                        target="_blank">了解更多</a></span>
+                            </span>
+                            <span class="req">*</span>
+                        </label>
+                        <input id="cf-issuer" placeholder="App Store Connect 页面顶部的 UUID" autocomplete="off">
+                    </div>
+                    <div class="form-row">
+                        <label>密钥ID<span class="req">*</span></label>
+                        <input id="cf-keyid" placeholder="10 位密钥ID（密钥列表中查看）" autocomplete="off">
+                    </div>
+                    <div class="form-row">
+                        <label id="cf-p8-label">.p8 私钥内容<span class="req">*</span></label>
+                        <textarea id="cf-p8" rows="6"
+                            placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <label class="file-label">或选择 .p8 文件<input type="file" id="cf-p8-file" accept=".p8"
+                                hidden></label>
+                    </div>
+                    <p id="config-form-error" class="error hidden"></p>
+                    <div class="form-actions">
+                        <button id="cf-save" class="primary">保存</button>
+                        <button id="cf-cancel">取消</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Builds Tab -->
+        <section id="tab-builds" class="tab-panel">
+            <div class="card">
+                <h2>Build 列表</h2>
+                <div class="form-row inline">
+                    <select id="builds-config"></select>
+                    <select id="builds-app">
+                        <option value="">先选择配置后加载 App</option>
+                    </select>
+                    <button id="btn-refresh-builds">刷新</button>
+                </div>
+                <div id="builds-table" class="muted">请先在上方选择配置与 App</div>
+            </div>
+
+            <div id="distribute-modal" class="modal hidden">
+                <div class="modal-box">
+                    <h3>加入 TestFlight 测试组</h3>
+                    <p id="distribute-build-info" class="muted"></p>
+                    <div id="distribute-groups" class="checkbox-list"></div>
+                    <div class="form-actions">
+                        <button id="distribute-confirm" class="primary">确认分发</button>
+                        <button id="distribute-cancel">取消</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 证书工具 Tab -->
+        <section id="tab-certs" class="tab-panel">
+            <div class="card">
+                <h2>第 1 步：生成私钥与 CSR</h2>
+                <p class="muted">生成 RSA 2048 私钥（自动保存在本地）与证书签名请求（.csr）。</p>
+                <div class="form-row inline">
+                    <input id="cert-remark" placeholder="所属项目（如：商城App，合成 p12 时用于识别）">
+                </div>
+                <div class="form-row inline">
+                    <input id="cert-cn" placeholder="通用名称（一般填邮箱，如 dev@example.com）">
+                    <button id="btn-random-cn">随机生成</button>
+                    <button id="btn-gen-csr" class="primary">生成 CSR</button>
+                </div>
+                <div id="csr-result" class="hidden">
+                    <textarea id="csr-text" rows="6" readonly></textarea>
+                    <button id="btn-download-csr">下载 .csr 文件</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>第 2 步：到 Apple 后台换取 .cer 证书</h2>
+                <ol class="steps">
+                    <li>登录 <a href="https://developer.apple.com/account/resources/certificates/list"
+                            target="_blank">Apple Developer - Certificates</a>；</li>
+                    <li>点击 <b>+</b> 新建证书，选择 <b>Apple Distribution</b>（或 iOS Distribution）；</li>
+                    <li>上传第 1 步下载的 .csr 文件；</li>
+                    <li>下载生成的 <b>.cer 证书文件</b> 回来。</li>
+                </ol>
+            </div>
+
+            <div class="card">
+                <h2>第 3 步：合成 .p12</h2>
+                <div class="form-row">
+                    <label>选择本地私钥</label>
+                    <div class="form-row inline" style="margin:0">
+                        <select id="cert-key">
+                            <option value="">请选择私钥</option>
+                        </select>
+                        <button id="btn-del-key" disabled title="取消当前选择">清除选择</button>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label>.cer 证书内容</label>
+                    <label class="file-label">选择 .cer 文件<input type="file" id="cert-cer-file" accept=".cer,.pem"
+                            hidden></label>
+                    <textarea id="cert-cer" rows="4"
+                        placeholder="选择 .cer 文件后自动填充（-----BEGIN CERTIFICATE----- ...），也可以直接粘贴 DER Base64"></textarea>
+                </div>
+                <div class="form-row inline">
+                    <input id="cert-password" type="password" placeholder="设置 .p12 导出密码（不填默认 123456）">
+                    <button id="btn-gen-p12" class="primary" disabled title="请先选择本地私钥">合成并下载 .p12</button>
+                </div>
+                <p class="muted">提示：发布 App Store / Ad Hoc 版本需要 .p12 外，还需要在 <a
+                        href="https://developer.apple.com/account/resources/profiles/list"
+                        target="_blank">Apple 描述文件页面</a>下载对应的 .mobileprovision 描述文件。</p>
+            </div>
+
+            <div class="card">
+                <h2>本地私钥列表</h2>
+                <div id="cert-keys" class="muted">暂无私钥</div>
+            </div>
+        </section>
+
+        <!-- 连通性 Tab -->
+        <section id="tab-connectivity" class="tab-panel">
+            <div class="card">
+                <h2>Apple 服务器连通性测试
+                    <button id="btn-conn-test" class="primary small">开始测试</button>
+                </h2>
+                <p class="muted">
+                    本测试从工具服务进程内发起（与上传 IPA 时完全相同的网络路径，含代理）。
+                    Node.js 不使用系统代理，若测试失败，请到“配置管理”页设置代理地址后重测。
+                    当前网络出口：<b id="conn-proxy">检测中...</b>
+                </p>
+                <p class="muted">说明：只要收到 Apple 返回的任意 HTTP 状态码（包括 401/302），即代表网络连通正常。</p>
+                <div id="conn-results" class="muted">尚未测试，点击“开始测试”。</div>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
