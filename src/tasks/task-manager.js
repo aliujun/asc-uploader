@@ -5,6 +5,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { getDir, ensureDirs } = require('../config/paths');
 const { runUploadPipeline } = require('./upload-pipeline');
+const { findIpa } = require('../server/routes/ipa');
+const c = require('../core/term');
 
 /** 任务文件路径 */
 function tasksFile() {
@@ -40,6 +42,16 @@ const ACTIVE_STAGES = new Set([
 ]);
 
 /**
+ * 允许用户中断的阶段（提交校验之前）。
+ * 文件一旦 commit 给 Apple，中断无法撤回也不再有意义，等待结果即可。
+ */
+const ABORTABLE_STAGES = new Set([
+  'QUEUED',
+  'PREPARING',
+  'PUSHING_CHUNKS',
+]);
+
+/**
  * 任务对前端脱敏后的视图
  * @param {Object} task 任务对象
  * @returns {Object} 视图对象
@@ -63,6 +75,8 @@ function toView(task) {
     message: task.message,
     logs: task.logs,
     buildId: task.buildId,
+    /** 本地 IPA 缓存是否仍可用（注册表为内存态，服务重启后即失效） */
+    ipaAvailable: Boolean(findIpa(task.ipaId)),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };
@@ -107,16 +121,28 @@ function persist() {
 }
 
 /**
- * 追加任务日志
+ * 追加任务日志（同时输出到终端便于调试）
  * @param {Object} task 任务对象
  * @param {string} message 日志内容
+ * @param {'info'|'ok'|'warn'|'error'} [level] 终端着色级别
  * @returns {void}
  */
-function addLog(task, message) {
+function addLog(task, message, level) {
   task.logs.push({ time: new Date().toISOString(), message });
   if (task.logs.length > 200) {
     task.logs.splice(0, task.logs.length - 200);
   }
+  const time = new Date().toLocaleTimeString();
+  const head = `${c.cyan(`[任务 ${String(task.id).slice(0, 8)}]`)}${c.gray(`[${time}]`)}`;
+  let body = message;
+  if (level === 'ok') {
+    body = c.green(message);
+  } else if (level === 'warn') {
+    body = c.yellow(message);
+  } else if (level === 'error') {
+    body = c.red(message);
+  }
+  console.log(`${head} ${body}`);
 }
 
 /**
@@ -212,17 +238,26 @@ async function processQueue() {
     return;
   }
   try {
+    // 每次执行（含重试）创建新的中断控制器，供用户中途取消
+    task.abortController = new AbortController();
     await runUploadPipeline(task, {
       update: (patch) => updateTask(task, patch),
-      log: (message) => {
-        addLog(task, message);
+      log: (message, level) => {
+        addLog(task, message, level);
         updateTask(task, {});
       },
     });
   } catch (err) {
-    addLog(task, `任务失败：${err.message}`);
-    updateTask(task, { stage: 'FAILED', message: err.message });
+    if (err && err.isAbort) {
+      addLog(task, '任务已被用户中断', 'warn');
+      updateTask(task, { stage: 'CANCELLED', message: '已中断' });
+    } else {
+      // 完整错误只进日志，顶部状态行仅显示简短总结
+      addLog(task, `任务失败：${err.message}`, 'error');
+      updateTask(task, { stage: 'FAILED', message: '上传失败，具体原因请查看下方日志' });
+    }
   } finally {
+    task.abortController = null;
     running = false;
     persist();
     processQueue();
@@ -250,20 +285,46 @@ function cancel(taskId) {
 }
 
 /**
- * 重试失败的任务（复用本地缓存的 IPA，Apple 流程从头执行）
+ * 中断任务：排队中的任务直接取消；运行中的任务触发中断信号，
+ * 流水线在最近的检查点停止并标记为已取消（已提交给 Apple 的上传无法撤回）
+ * @param {string} taskId 任务 ID
+ * @returns {boolean} 是否成功触发中断
+ */
+function abort(taskId) {
+  const task = findTask(taskId);
+  if (!task) {
+    return false;
+  }
+  if (task.stage === 'QUEUED') {
+    return cancel(taskId);
+  }
+  // 仅提交校验前允许中断；commit 之后文件已在 Apple 手里，等待结果即可
+  if (!ABORTABLE_STAGES.has(task.stage) || !task.abortController) {
+    return false;
+  }
+  console.log(`[任务 ${String(taskId).slice(0, 8)}] 收到中断请求，当前阶段：${task.stage}`);
+  task.abortController.abort();
+  return true;
+}
+
+/**
+ * 重试失败或已取消的任务（复用本地缓存的 IPA，Apple 流程从头执行）
  * @param {string} taskId 任务 ID
  * @returns {boolean} 是否入队成功
  */
 function retry(taskId) {
   const task = findTask(taskId);
-  if (!task || task.stage !== 'FAILED') {
+  if (!task || (task.stage !== 'FAILED' && task.stage !== 'CANCELLED')) {
     return false;
   }
   task.stage = 'QUEUED';
   task.progress = 0;
   task.uploadedBytes = 0;
   task.message = '重新排队等待中';
-  addLog(task, '任务已重新入队');
+  task.attemptCount = (task.attemptCount || 1) + 1;
+  // 重试是全新一次上传，清空上次日志避免新旧混杂干扰排查
+  task.logs = [];
+  addLog(task, `第 ${task.attemptCount} 次尝试，已重新入队`);
   queue.push(task.id);
   broadcast(task.id);
   persist();
@@ -316,6 +377,15 @@ function subscribe(taskId, res) {
 }
 
 /**
+ * 判断任务是否处于进行中（排队或运行各阶段）
+ * @param {string} stage 阶段英文标识
+ * @returns {boolean} 进行中返回 true
+ */
+function isStageActive(stage) {
+  return ACTIVE_STAGES.has(stage);
+}
+
+/**
  * 获取任务列表视图
  * @returns {Array<Object>} 任务视图列表
  */
@@ -327,6 +397,7 @@ module.exports = {
   loadTasks,
   enqueue,
   cancel,
+  abort,
   retry,
   removeTask,
   subscribe,
@@ -334,4 +405,5 @@ module.exports = {
   findTask,
   toView,
   broadcast,
+  isStageActive,
 };

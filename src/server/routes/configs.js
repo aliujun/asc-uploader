@@ -108,21 +108,4 @@ router.post('/:id/verify', async (req, res) => {
   }
 });
 
-/**
- * POST /api/configs/:id/activate 激活配置
- * @returns {void}
- */
-router.post('/:id/activate', async (req, res) => {
-  try {
-    const ok = await store.setActive(req.params.id);
-    if (!ok) {
-      sendError(res, 404, '配置不存在');
-      return;
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    sendError(res, 500, err.message);
-  }
-});
-
 module.exports = router;

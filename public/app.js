@@ -24,7 +24,12 @@ function toast(message, isError) {
  * @returns {Promise<Object>} 响应 JSON，失败时抛出带 error 信息的异常
  */
 async function api(url, opts) {
-  const response = await fetch(url, opts);
+  let response;
+  try {
+    response = await fetch(url, opts);
+  } catch {
+    throw new Error('无法连接本地服务，请确认服务正在运行，然后刷新页面');
+  }
   const text = await response.text();
   let data = null;
   try {
@@ -39,14 +44,36 @@ async function api(url, opts) {
 }
 
 /**
- * 触发浏览器下载文本/二进制内容
- * @param {string} filename 文件名
+ * 触发浏览器保存文件：优先弹出"另存为"对话框由用户选择保存位置，
+ * 浏览器不支持 File System Access API 时回退为直接下载到默认目录
+ * @param {string} filename 建议的文件名
  * @param {string|Blob} content 内容
  * @param {string} [mime] MIME 类型
- * @returns {void}
+ * @returns {Promise<void>}
  */
-function downloadFile(filename, content, mime) {
+async function downloadFile(filename, content, mime) {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mime || 'text/plain' });
+  if (window.showSaveFilePicker) {
+    try {
+      const dotIndex = filename.lastIndexOf('.');
+      const ext = dotIndex >= 0 ? filename.slice(dotIndex) : '';
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: ext
+          ? [{ description: `${ext.slice(1).toUpperCase()} 文件`, accept: { 'application/octet-stream': [ext] } }]
+          : undefined,
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        return; // 用户取消保存
+      }
+      // 其它异常（如用户手势过期）回退为直接下载
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -83,20 +110,177 @@ function fmtSize(bytes) {
   return `${value.toFixed(value >= 100 || i === 0 ? 0 : 2)} ${units[i]}`;
 }
 
+/** 任务阶段英文名 → 中文名映射 */
+const STAGE_TEXT = {
+  QUEUED: '排队中',
+  PREPARING: '准备中',
+  PUSHING_CHUNKS: '上传中',
+  COMMITTING: '提交校验',
+  VALIDATING: 'Apple 校验中',
+  WAITING_PROCESS: '等待 build 处理',
+  DISTRIBUTING: 'TestFlight 分发中',
+  DONE: '完成',
+  FAILED: '失败',
+  CANCELLED: '已取消',
+};
+
+/** build 处理状态英文名 → 中文名映射（官方枚举：PROCESSING/FAILED/INVALID/VALID） */
+const BUILD_STATE_TEXT = {
+  PROCESSING: '处理中',
+  FAILED: '失败',
+  INVALID: '无效',
+  VALID: '可用',
+};
+
+/**
+ * 任务阶段的中文文案
+ * @param {string} stage 阶段英文标识
+ * @returns {string} 中文名，未知时原样返回
+ */
+function stageText(stage) {
+  return STAGE_TEXT[stage] || stage || '-';
+}
+
+/**
+ * build 处理状态的中文文案
+ * @param {string} state 状态英文标识
+ * @returns {string} 中文名，未知时原样返回
+ */
+function buildStateText(state) {
+  return BUILD_STATE_TEXT[state] || state || '-';
+}
+
+/** 任务进行中的阶段集合（可中断 / 不可重试） */
+const ACTIVE_STAGES = new Set([
+  'QUEUED',
+  'PREPARING',
+  'PUSHING_CHUNKS',
+  'COMMITTING',
+  'VALIDATING',
+  'WAITING_PROCESS',
+  'DISTRIBUTING',
+]);
+
+/** 允许中断的阶段（提交校验之前；文件一旦提交给 Apple，中断无意义） */
+const ABORTABLE_STAGES = new Set([
+  'QUEUED',
+  'PREPARING',
+  'PUSHING_CHUNKS',
+]);
+
+/**
+ * 判断任务是否进行中
+ * @param {string} stage 阶段英文标识
+ * @returns {boolean} 进行中返回 true
+ */
+function isStageActive(stage) {
+  return ACTIVE_STAGES.has(stage);
+}
+
+/**
+ * 按钮加载态包装：执行期间禁用按钮并显示加载文案，防止重复点击
+ * @param {HTMLButtonElement} button 按钮元素
+ * @param {string} loadingText 加载中显示的文字
+ * @param {() => (void|Promise<void>)} fn 要执行的异步操作
+ * @returns {Promise<void>}
+ */
+async function withLoading(button, loadingText, fn) {
+  if (button.disabled) {
+    return;
+  }
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = loadingText;
+  try {
+    await fn();
+  } finally {
+    button.textContent = originalText;
+    button.disabled = false;
+  }
+}
+
+/** 标题闪烁定时器 */
+let titleFlashTimer = null;
+
+/**
+ * 浏览器标签页标题闪烁提醒（窗口获得焦点后自动停止）
+ * @param {string} message 提醒文字
+ * @returns {void}
+ */
+function flashTitle(message) {
+  stopFlashTitle();
+  const originalTitle = document.title;
+  let visible = false;
+  titleFlashTimer = setInterval(() => {
+    document.title = visible ? originalTitle : `【${message}】`;
+    visible = !visible;
+  }, 800);
+}
+
+/**
+ * 停止标题闪烁并恢复默认标题
+ * @returns {void}
+ */
+function stopFlashTitle() {
+  if (titleFlashTimer) {
+    clearInterval(titleFlashTimer);
+    titleFlashTimer = null;
+    document.title = 'App Store应用上架助手';
+  }
+}
+
+window.addEventListener('focus', stopFlashTitle);
+
 /* ====================== Tab 切换 ====================== */
 
+/**
+ * 切换到指定 Tab
+ * @param {string} tabName Tab 标识（data-tab 值）
+ * @returns {void}
+ */
+function switchTab(tabName) {
+  document.querySelectorAll('.tab').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+  const target = document.querySelector(`.tab[data-tab="${tabName}"]`);
+  if (!target) {
+    return;
+  }
+  target.classList.add('active');
+  $(`tab-${tabName}`).classList.add('active');
+  localStorage.setItem('asc-active-tab', tabName);
+  onTabShown(tabName);
+}
+
+/**
+ * Tab 显示时按需刷新对应数据
+ * @param {string} tabName Tab 标识
+ * @returns {void}
+ */
+function onTabShown(tabName) {
+  if (tabName === 'builds') {
+    loadAppsForBuilds().catch(() => {});
+    return;
+  }
+  if (tabName === 'certs') {
+    loadCertKeys().catch(() => {});
+    return;
+  }
+  if (tabName === 'connectivity') {
+    loadConnectivityInfo().catch(() => {});
+    return;
+  }
+  if (tabName === 'upload') {
+    loadTaskHistory().catch(() => {});
+  }
+}
+
 document.querySelectorAll('.tab').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
-    btn.classList.add('active');
-    $(`tab-${btn.dataset.tab}`).classList.add('active');
-  });
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
 
 /* ====================== 配置管理 ====================== */
 
-const configState = { list: [], activeId: null, editingId: null, selectedUploadConfig: null };
+const configState = { list: [], editingId: null };
 
 /**
  * 加载配置列表并刷新相关下拉框
@@ -105,10 +289,19 @@ const configState = { list: [], activeId: null, editingId: null, selectedUploadC
 async function loadConfigs() {
   const data = await api('/api/configs');
   configState.list = data.configs;
-  configState.activeId = data.activeId;
   renderConfigList();
   fillConfigSelect($('upload-config'), '请选择配置');
   fillConfigSelect($('builds-config'), '选择配置');
+  $('no-config-hint').classList.toggle('hidden', configState.list.length > 0);
+  updateSubmitButton();
+}
+
+/**
+ * 同步"提交上传任务"按钮状态：既有可用配置、又已上传 IPA 才可点击
+ * @returns {void}
+ */
+function updateSubmitButton() {
+  $('submit-task').disabled = configState.list.length === 0 || !uploadState.ipaMeta;
 }
 
 /**
@@ -129,9 +322,6 @@ function fillConfigSelect(select, placeholder) {
     option.textContent = c.name;
     select.appendChild(option);
   });
-  if (configState.activeId) {
-    select.value = configState.activeId;
-  }
 }
 
 /**
@@ -147,11 +337,10 @@ function renderConfigList() {
   }
   configState.list.forEach((c) => {
     const item = document.createElement('div');
-    item.className = `config-item${c.id === configState.activeId ? ' active' : ''}`;
+    item.className = 'config-item';
     item.innerHTML = `
       <div>
         <span class="name">${escapeHtml(c.name)}</span>
-        ${c.id === configState.activeId ? '<span class="badge active">使用中</span>' : ''}
         ${c._verifyOk === true ? '<span class="badge ok">验证通过</span>' : ''}
         ${c._verifyOk === false ? '<span class="badge err">验证失败</span>' : ''}
         <div class="meta">Issuer ID: ${escapeHtml(c.issuerId)} · 密钥ID: ${escapeHtml(c.keyId)}</div>
@@ -159,13 +348,11 @@ function renderConfigList() {
       <div class="actions">
         <button class="small" data-act="verify">验证</button>
         <button class="small" data-act="edit">编辑</button>
-        <button class="small" data-act="activate">激活</button>
         <button class="small danger" data-act="delete">删除</button>
       </div>`;
-    item.querySelector('[data-act="verify"]').onclick = () => verifyConfig(c);
-    item.querySelector('[data-act="edit"]').onclick = () => openConfigForm(c);
-    item.querySelector('[data-act="activate"]').onclick = () => activateConfig(c);
-    item.querySelector('[data-act="delete"]').onclick = () => deleteConfig(c);
+    bindConfigAction(item, 'verify', () => verifyConfig(c));
+    bindConfigAction(item, 'edit', () => openConfigForm(c));
+    bindConfigAction(item, 'delete', () => deleteConfig(c));
     wrap.appendChild(item);
   });
 }
@@ -200,15 +387,15 @@ async function verifyConfig(config) {
 }
 
 /**
- * 激活配置
- * @param {Object} config 配置
- * @returns {Promise<void>}
+ * 为配置卡片上的操作按钮绑定加载态
+ * @param {HTMLElement} item 配置卡片元素
+ * @param {string} action 按钮标识（verify/edit/delete）
+ * @param {() => Promise<void>} handler 点击处理
+ * @returns {void}
  */
-async function activateConfig(config) {
-  await api(`/api/configs/${config.id}/activate`, { method: 'POST' });
-  configState.activeId = config.id;
-  renderConfigList();
-  toast(`已切换使用「${config.name}」`);
+function bindConfigAction(item, action, handler) {
+  const button = item.querySelector(`[data-act="${action}"]`);
+  button.onclick = () => withLoading(button, '处理中...', handler);
 }
 
 /**
@@ -242,6 +429,7 @@ function openConfigForm(config) {
   $('cf-p8').value = '';
   $('config-form-error').classList.add('hidden');
   $('config-form-modal').classList.remove('hidden');
+  $('cf-name').focus();
 }
 
 /**
@@ -268,6 +456,10 @@ async function saveConfigForm() {
     showFormError('新增配置必须提供 .p8 私钥内容');
     return;
   }
+  if (p8 && !p8.includes('-----BEGIN PRIVATE KEY-----')) {
+    showFormError('.p8 私钥内容格式不正确，应以 -----BEGIN PRIVATE KEY----- 开头');
+    return;
+  }
   if (p8) {
     body.p8Content = p8;
   }
@@ -287,10 +479,10 @@ async function saveConfigForm() {
 
 $('btn-new-config').onclick = () => openConfigForm(null);
 $('cf-cancel').onclick = () => $('config-form-modal').classList.add('hidden');
-$('cf-save').onclick = () => saveConfigForm();
+$('cf-save').onclick = () => withLoading($('cf-save'), '保存中...', saveConfigForm);
 
 /**
- * 选择 .p8 文件后自动填充内容
+ * 选择 .p8 文件后自动填充内容并显示文件名
  * @returns {void}
  */
 $('cf-p8-file').addEventListener('change', async (event) => {
@@ -299,6 +491,7 @@ $('cf-p8-file').addEventListener('change', async (event) => {
     return;
   }
   $('cf-p8').value = (await file.text()).trim();
+  $('cf-p8-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
   toast(`已读取 ${file.name}`);
 });
 
@@ -319,7 +512,7 @@ function pickIpaFile(file) {
   uploadState.file = file;
   uploadState.ipaMeta = null;
   $('ipa-meta').classList.add('hidden');
-  $('submit-task').disabled = true;
+  updateSubmitButton();
   startLocalUpload(file);
 }
 
@@ -354,7 +547,7 @@ function startLocalUpload(file) {
       const meta = JSON.parse(xhr.responseText);
       uploadState.ipaMeta = meta;
       renderIpaMeta(meta);
-      $('submit-task').disabled = false;
+      updateSubmitButton();
       loadBetaGroups();
       resolve();
     };
@@ -381,7 +574,7 @@ function renderIpaMeta(meta) {
     MD5: ${escapeHtml(meta.md5)}`;
 }
 
-/* 拖拽与选择 */
+/* 拖拽与选择（拖拽目标为整个页面，drop-zone 内部处理时阻止冒泡） */
 const dropZone = $('drop-zone');
 dropZone.addEventListener('dragover', (e) => {
   e.preventDefault();
@@ -390,8 +583,17 @@ dropZone.addEventListener('dragover', (e) => {
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', (e) => {
   e.preventDefault();
+  e.stopPropagation();
   dropZone.classList.remove('dragover');
   pickIpaFile(e.dataTransfer.files[0]);
+});
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer && e.dataTransfer.files[0];
+  if (file) {
+    pickIpaFile(file);
+  }
 });
 $('ipa-input').addEventListener('change', (e) => pickIpaFile(e.target.files[0]));
 
@@ -408,7 +610,7 @@ async function loadBetaGroups() {
     return;
   }
   block.classList.remove('hidden');
-  wrap.innerHTML = '<span class="muted">加载测试组中...</span>';
+  wrap.innerHTML = '<span class="inline-loading">正在加载测试组...</span>';
   try {
     const data = await api(`/api/beta-groups?configId=${configId}`);
     if (data.groups.length === 0) {
@@ -455,12 +657,13 @@ async function submitTask() {
     });
     subscribeTask(task.id);
     toast('任务已提交');
+    loadTaskHistory().catch(() => {});
   } catch (err) {
     toast(err.message, true);
   }
 }
 
-$('submit-task').onclick = () => submitTask();
+$('submit-task').onclick = () => withLoading($('submit-task'), '提交中...', submitTask);
 
 /**
  * 订阅任务 SSE 并渲染进度
@@ -499,17 +702,80 @@ function renderTaskProgress(task) {
     .map((l) => `[${new Date(l.time).toLocaleTimeString()}] ${escapeHtml(l.message)}`)
     .join('\n');
   wrap.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;">
-      <span class="stage-badge ${task.stage}">${escapeHtml(task.stage)}</span>
-      <b>${escapeHtml(task.filename || '')}</b>
-      <span class="muted">${escapeHtml(task.message || '')}</span>
+    <div class="task-summary">
+      <span class="stage-badge ${task.stage}">${escapeHtml(stageText(task.stage))}</span>
+      <b class="task-filename" title="${escapeHtml(task.filename || '')}">${escapeHtml(task.filename || '')}</b>
+      <span class="muted task-message" title="${escapeHtml(task.message || '')}">${escapeHtml(task.message || '')}</span>
     </div>
     <div class="progress" style="margin-top:10px;"><div class="progress-bar" style="width:${percent}%"></div></div>
     <div class="muted" style="margin-top:6px;">已上传 ${fmtSize(task.uploadedBytes || 0)} / ${fmtSize(task.sizeBytes || 0)}
       ${task.buildId ? ` · buildId: ${escapeHtml(task.buildId)}` : ''}</div>
     <div class="log">${logLines}</div>
-    ${task.stage === 'FAILED' ? `<button class="small" style="margin-top:8px" onclick="retryTask('${task.id}')">重试</button>` : ''}`;
+    <div style="margin-top:8px;">
+      ${ABORTABLE_STAGES.has(task.stage) ? `<button class="small danger" onclick="abortTask('${task.id}')">中断上传</button>` : ''}
+      ${(task.stage === 'FAILED' || task.stage === 'CANCELLED') && task.ipaAvailable ? `<button class="small" onclick="retryTask('${task.id}')">重试</button>` : ''}
+    </div>`;
+  const logEl = wrap.querySelector('.log');
+  if (logEl) {
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  if (task.stage === 'DONE' || task.stage === 'FAILED' || task.stage === 'CANCELLED') {
+    flashTitle(task.stage === 'DONE' ? '上传完成' : task.stage === 'CANCELLED' ? '已中断' : '上传失败');
+    loadTaskHistory().catch(() => {});
+  }
 }
+
+/**
+ * 加载并渲染历史任务列表
+ * @returns {Promise<void>}
+ */
+async function loadTaskHistory() {
+  const wrap = $('task-history');
+  try {
+    const data = await api('/api/tasks');
+    if (data.tasks.length === 0) {
+      wrap.innerHTML = '<span class="muted">暂无任务记录</span>';
+      return;
+    }
+    const rows = data.tasks.map((t) => `
+      <tr>
+        <td><b>${escapeHtml(t.filename || '-')}</b><div class="muted">${escapeHtml(t.bundleId || '')} ${t.shortVersion ? `v${escapeHtml(t.shortVersion)}` : ''}</div></td>
+        <td><span class="stage-badge ${escapeHtml(t.stage)}">${escapeHtml(stageText(t.stage))}</span></td>
+        <td>${new Date(t.createdAt).toLocaleString()}</td>
+        <td>
+          ${(t.stage === 'FAILED' || t.stage === 'CANCELLED') && t.ipaAvailable ? `<button class="small" data-retry="${t.id}">重试</button>` : ''}
+          ${isStageActive(t.stage) ? '' : `<button class="small danger" data-remove="${t.id}" data-name="${escapeHtml(t.filename || '')}">删除</button>`}
+        </td>
+      </tr>`).join('');
+    wrap.innerHTML = `
+      <table class="builds">
+        <thead><tr><th>文件</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    wrap.querySelectorAll('[data-retry]').forEach((btn) => {
+      btn.onclick = () => retryTask(btn.dataset.retry);
+    });
+    wrap.querySelectorAll('[data-remove]').forEach((btn) => {
+      btn.onclick = async () => {
+        const name = btn.dataset.name || '该任务';
+        if (!confirm(`确定删除任务「${name}」吗？其本地 IPA 缓存将一并删除。`)) {
+          return;
+        }
+        try {
+          await api(`/api/tasks/${btn.dataset.remove}`, { method: 'DELETE' });
+          toast('任务记录已删除');
+          await loadTaskHistory();
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+    });
+  } catch (err) {
+    wrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+$('btn-refresh-history').onclick = () => loadTaskHistory().catch((err) => toast(err.message, true));
 
 /**
  * 重试任务
@@ -521,12 +787,63 @@ window.retryTask = async function retryTask(taskId) {
     await api(`/api/tasks/${taskId}/retry`, { method: 'POST' });
     subscribeTask(taskId);
     toast('已重新入队');
+    // 同步刷新历史列表，避免残留上一次的"失败"状态
+    loadTaskHistory().catch(() => {});
+  } catch (err) {
+    toast(err.message, true);
+  }
+};
+
+/**
+ * 中断进行中的上传任务（确认弹窗说明 Apple 侧语义）
+ * @param {string} taskId 任务 ID
+ * @returns {Promise<void>}
+ */
+window.abortTask = async function abortTask(taskId) {
+  const confirmed = confirm(
+    '确定中断该上传任务吗？\n\n' +
+    '· 中断仅停止本地上传流程，已上传的分块将被作废\n' +
+    '· 尚未向 Apple 提交校验，不会生成 build，也不占用版本号\n' +
+    '· 中断后任务标记为“已取消”，本地 IPA 缓存保留，可重新重试'
+  );
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await api(`/api/tasks/${taskId}/abort`, { method: 'POST' });
+    toast('已发送中断请求，任务将在最近的检查点停止');
   } catch (err) {
     toast(err.message, true);
   }
 };
 
 /* ====================== Builds 页 ====================== */
+
+/**
+ * 设置下拉框加载态：显示 loading 文案并在下拉按钮上转圈，期间禁止交互
+ * @param {HTMLSelectElement} select 已增强的下拉框
+ * @param {boolean} loading 是否加载中
+ * @param {string} [text='加载中...'] 加载中显示的文案
+ * @returns {void}
+ */
+function setSelectLoading(select, loading, text = '加载中...') {
+  const wrap = select.closest('.dropdown');
+  if (!wrap) {
+    return;
+  }
+  wrap.classList.toggle('is-loading', loading);
+  if (loading) {
+    const menu = wrap.querySelector('.dropdown-menu');
+    if (menu) {
+      menu.classList.add('hidden');
+    }
+    select.innerHTML = '';
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = text;
+    select.appendChild(option);
+  }
+}
 
 /**
  * 加载 App 下拉
@@ -540,6 +857,7 @@ async function loadAppsForBuilds() {
     select.innerHTML = '<option value="">先选择配置</option>';
     return;
   }
+  setSelectLoading(select, true, '正在加载 App 列表...');
   try {
     const data = await api(`/api/apps?configId=${configId}`);
     select.innerHTML = '<option value="">选择 App</option>';
@@ -550,7 +868,11 @@ async function loadAppsForBuilds() {
       select.appendChild(option);
     });
   } catch (err) {
+    // 下拉框标记失败，避免残留上一个配置的 App 列表造成误选
+    select.innerHTML = '<option value="">App 列表加载失败，请重试</option>';
     toast(err.message, true);
+  } finally {
+    setSelectLoading(select, false);
   }
 }
 
@@ -566,7 +888,7 @@ async function loadBuilds() {
     wrap.innerHTML = '<span class="muted">请先在上方选择配置与 App</span>';
     return;
   }
-  wrap.innerHTML = '<span class="muted">加载中...</span>';
+  wrap.innerHTML = '<span class="inline-loading">正在加载 build 列表...</span>';
   try {
     const data = await api(`/api/apps/${appId}/builds?configId=${configId}`);
     if (data.builds.length === 0) {
@@ -576,7 +898,7 @@ async function loadBuilds() {
     const rows = data.builds.map((b) => `
       <tr>
         <td>${escapeHtml(String(b.version))} ${b.shortVersion ? `(${escapeHtml(b.shortVersion)})` : ''}</td>
-        <td><span class="stage-badge ${escapeHtml(b.processingState)}">${escapeHtml(b.processingState)}</span></td>
+        <td><span class="stage-badge ${escapeHtml(b.processingState)}">${escapeHtml(buildStateText(b.processingState))}</span></td>
         <td>${b.uploadedDate ? new Date(b.uploadedDate).toLocaleString() : '-'}</td>
         <td><button class="small" data-build="${b.id}" data-version="${escapeHtml(String(b.version))}">加入测试组</button></td>
       </tr>`).join('');
@@ -595,7 +917,7 @@ async function loadBuilds() {
 
 $('builds-config').addEventListener('change', loadAppsForBuilds);
 $('builds-app').addEventListener('change', loadBuilds);
-$('btn-refresh-builds').onclick = () => loadBuilds();
+$('btn-refresh-builds').onclick = () => withLoading($('btn-refresh-builds'), '刷新中...', loadBuilds);
 
 /* 分发弹窗 */
 const distributeState = { buildId: null, configId: null };
@@ -652,7 +974,7 @@ async function confirmDistribute() {
   }
 }
 
-$('distribute-confirm').onclick = () => confirmDistribute();
+$('distribute-confirm').onclick = () => withLoading($('distribute-confirm'), '分发中...', confirmDistribute);
 $('distribute-cancel').onclick = () => $('distribute-modal').classList.add('hidden');
 
 /* ====================== 证书工具 ====================== */
@@ -664,6 +986,11 @@ $('distribute-cancel').onclick = () => $('distribute-modal').classList.add('hidd
 async function generateCsr() {
   const commonName = $('cert-cn').value.trim();
   const remark = $('cert-remark').value.trim();
+  if (!remark) {
+    toast('请先填写所属项目（必填，用于区分各私钥对应的项目）', true);
+    $('cert-remark').focus();
+    return;
+  }
   if (!commonName) {
     toast('请先填写通用名称（一般填邮箱）', true);
     return;
@@ -697,7 +1024,7 @@ function randomCommonName() {
 }
 
 $('btn-random-cn').onclick = () => randomCommonName();
-$('btn-gen-csr').onclick = () => generateCsr();
+$('btn-gen-csr').onclick = () => withLoading($('btn-gen-csr'), '生成中...', generateCsr);
 $('btn-download-csr').onclick = () => downloadFile('certificate signing request.csr', $('csr-text').value);
 
 /** 私钥列表数据缓存（供合成 p12 时按 keyId 反查所属项目） */
@@ -732,6 +1059,10 @@ async function loadCertKeys() {
         </div>
         <button class="small danger" data-key="${k.keyId}">删除</button>`;
       row.querySelector('[data-key]').onclick = async () => {
+        const label = k.remark || k.commonName;
+        if (!confirm(`确定删除私钥「${label}」？删除后无法再为它合成 p12。`)) {
+          return;
+        }
         await api(`/api/certs/keys/${k.keyId}`, { method: 'DELETE' });
         loadCertKeys();
       };
@@ -752,6 +1083,7 @@ $('cert-cer-file').addEventListener('change', async (event) => {
   if (!file) {
     return;
   }
+  $('cert-cer-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
   try {
     const text = await file.text();
     if (text.includes('-----BEGIN CERTIFICATE-----')) {
@@ -764,11 +1096,31 @@ $('cert-cer-file').addEventListener('change', async (event) => {
       }
       $('cert-cer').value = btoa(binary);
     }
-    toast(`已读取 ${file.name}（${fmtSize(file.size)}）`);
+    toast(`已读取 ${file.name}`);
   } catch (err) {
     toast(`读取文件失败：${err.message}`, true);
   }
 });
+
+/**
+ * 切换 p12 密码输入框的显示/隐藏
+ * @returns {void}
+ */
+$('btn-toggle-password').onclick = () => {
+  const input = $('cert-password');
+  const hidden = input.type === 'password';
+  input.type = hidden ? 'text' : 'password';
+  $('btn-toggle-password').textContent = hidden ? '隐藏' : '显示';
+};
+
+/**
+ * 清空 p12 密码输入框
+ * @returns {void}
+ */
+$('btn-clear-password').onclick = () => {
+  $('cert-password').value = '';
+  $('cert-password').focus();
+};
 
 /**
  * 合成 p12 并下载（合成前解析证书，识别开发证书并提醒）
@@ -785,6 +1137,11 @@ async function generateP12() {
   }
   if (!cerContent) {
     toast('请选择或粘贴 .cer 证书内容', true);
+    return;
+  }
+  if (inputPassword && inputPassword.length < 6) {
+    toast('p12 导出密码至少 6 位', true);
+    $('cert-password').focus();
     return;
   }
   try {
@@ -814,7 +1171,10 @@ async function generateP12() {
     const blob = await response.blob();
     const keyEntry = certKeysCache.list.find((k) => k.keyId === keyId);
     const safeRemark = (keyEntry && keyEntry.remark || '').replace(/[\\/:*?"<>|]/g, '');
-    downloadFile(safeRemark ? `certificate-${safeRemark}.p12` : 'certificate.p12', blob);
+    // 拼接证书用途标识：dev=开发证书，release=发布（Distribution）证书
+    const typeLabel = info.certType === 'development' ? 'dev' : (info.certType === 'distribution' ? 'release' : '');
+    const nameParts = [safeRemark, typeLabel].filter(Boolean).join('-');
+    downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate.p12', blob);
     toast(inputPassword ? 'p12 已合成并开始下载' : 'p12 已合成（未填密码，默认密码 123456）');
   } catch (err) {
     toast(err.message, true);
@@ -844,7 +1204,84 @@ function clearKeySelection() {
 
 $('btn-del-key').onclick = () => clearKeySelection();
 
-$('btn-gen-p12').onclick = () => generateP12();
+$('btn-gen-p12').onclick = () => withLoading($('btn-gen-p12'), '合成中...', async () => {
+  await generateP12();
+  updateGenP12Button();
+});
+
+/* ====================== 从 .p12 提取私钥 ====================== */
+
+const importP12State = { base64: '' };
+
+/**
+ * 同步"从 .p12 提取"按钮状态：已选文件且填写所属项目才可点击（密码可不填，默认 123456）
+ * @returns {void}
+ */
+function updateImportP12Button() {
+  $('btn-import-p12').disabled = !importP12State.base64
+    || !$('import-p12-remark').value.trim();
+}
+
+$('import-p12-file').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    importP12State.base64 = btoa(binary);
+    $('import-p12-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
+    updateImportP12Button();
+  } catch (err) {
+    toast(`读取文件失败：${err.message}`, true);
+  }
+});
+
+$('import-p12-remark').addEventListener('input', updateImportP12Button);
+
+/**
+ * 从 .p12 文件提取私钥并导入（密码不填时默认 123456）
+ * @returns {Promise<void>}
+ */
+async function importP12Key() {
+  const remark = $('import-p12-remark').value.trim();
+  const inputPassword = $('import-p12-password').value;
+  const password = inputPassword || '123456';
+  if (!importP12State.base64) {
+    toast('请先选择 .p12 文件', true);
+    return;
+  }
+  if (!remark) {
+    toast('请填写所属项目（必填）', true);
+    return;
+  }
+  try {
+    const result = await api('/api/certs/keys/import-p12', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p12Base64: importP12State.base64, password, remark }),
+    });
+    let message = `私钥已提取导入（${remark}）`;
+    if (result.cert) {
+      message += `，对应证书有效期至 ${new Date(result.cert.validNotAfter).toLocaleDateString()}`;
+    }
+    toast(message);
+    importP12State.base64 = '';
+    $('import-p12-file-name').textContent = '选择 .p12 文件';
+    $('import-p12-password').value = '';
+    $('import-p12-remark').value = '';
+    updateImportP12Button();
+    loadCertKeys();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('btn-import-p12').onclick = () => withLoading($('btn-import-p12'), '提取中...', importP12Key);
 
 /* ====================== 连通性测试 ====================== */
 
@@ -870,7 +1307,7 @@ async function runConnectivityTest() {
   const wrap = $('conn-results');
   const button = $('btn-conn-test');
   button.disabled = true;
-  wrap.innerHTML = '<span class="muted">测试中，最长等待约 8 秒/项...</span>';
+  wrap.innerHTML = '<span class="inline-loading">测试中，最长等待约 8 秒/项...</span>';
   try {
     const data = await api('/api/connectivity/test', { method: 'POST' });
     const rows = data.results.map((r) => `
@@ -927,15 +1364,164 @@ document.addEventListener('click', (event) => {
   closeAllHints();
 });
 
+/* ====================== 自定义下拉组件（替代原生 select 的系统样式） ====================== */
+
+/**
+ * 将原生 select 增强为自定义下拉：隐藏原生控件，渲染样式可控的触发按钮与选项列表。
+ * 原生 select 的 value 读写与 change 事件保持不变，业务代码零改动。
+ * @param {HTMLSelectElement} select 原生下拉框
+ * @returns {void}
+ */
+function enhanceSelect(select) {
+  if (select._enhanced) {
+    return;
+  }
+  select._enhanced = true;
+  select.style.display = 'none';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'dropdown';
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'dropdown-trigger';
+  const menu = document.createElement('div');
+  menu.className = 'dropdown-menu hidden';
+  wrap.appendChild(trigger);
+  wrap.appendChild(menu);
+
+  /**
+   * 按当前 select 的选项重建下拉列表
+   * @returns {void}
+   */
+  function rebuildMenu() {
+    menu.innerHTML = '';
+    Array.from(select.options).forEach((opt) => {
+      const item = document.createElement('div');
+      item.className = `dropdown-item${opt.value === select.value ? ' selected' : ''}`;
+      item.textContent = opt.textContent;
+      item.onclick = () => {
+        select.value = opt.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        menu.classList.add('hidden');
+      };
+      menu.appendChild(item);
+    });
+  }
+
+  /**
+   * 同步触发按钮显示为当前选中项文本
+   * @returns {void}
+   */
+  function updateTrigger() {
+    const current = select.options[select.selectedIndex];
+    trigger.textContent = current ? current.textContent : '请选择';
+    trigger.classList.toggle('placeholder', !select.value);
+  }
+
+  trigger.onclick = () => {
+    const hidden = menu.classList.contains('hidden');
+    document.querySelectorAll('.dropdown-menu:not(.hidden)').forEach((m) => m.classList.add('hidden'));
+    if (hidden) {
+      rebuildMenu();
+      menu.classList.remove('hidden');
+    }
+  };
+
+  // 业务代码重建 options（innerHTML）后自动同步按钮文本
+  new MutationObserver(updateTrigger).observe(select, { childList: true });
+
+  // 拦截 value 赋值：JS 直接设置 select.value 时同步按钮
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  Object.defineProperty(select, 'value', {
+    get: descriptor.get,
+    set(v) {
+      descriptor.set.call(this, v);
+      updateTrigger();
+    },
+  });
+
+  updateTrigger();
+}
+
+// 点击组件外部时关闭所有下拉列表
+document.addEventListener('click', (event) => {
+  document.querySelectorAll('.dropdown-menu:not(.hidden)').forEach((m) => {
+    if (!m.parentNode.contains(event.target)) {
+      m.classList.add('hidden');
+    }
+  });
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    document.querySelectorAll('.dropdown-menu:not(.hidden)').forEach((m) => m.classList.add('hidden'));
+  }
+});
+
+document.querySelectorAll('select').forEach(enhanceSelect);
+
+/* ====================== 通用交互：回车提交 / 遮罩与 Esc 关闭 ====================== */
+
+/**
+ * 为输入框绑定回车触发（textarea 不适用）
+ * @param {string} inputId 输入框 ID
+ * @param {() => void} handler 回车时执行的回调
+ * @returns {void}
+ */
+function bindEnter(inputId, handler) {
+  $(inputId).addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handler();
+    }
+  });
+}
+
+bindEnter('cf-name', saveConfigForm);
+bindEnter('cf-issuer', saveConfigForm);
+bindEnter('cf-keyid', saveConfigForm);
+bindEnter('cert-remark', generateCsr);
+bindEnter('cert-cn', generateCsr);
+bindEnter('cert-password', generateP12);
+bindEnter('setting-proxy', saveSettings);
+
+/**
+ * 点击弹窗遮罩（非内容区）关闭弹窗
+ * @returns {void}
+ */
+function bindModalBackdropClose() {
+  document.querySelectorAll('.modal').forEach((modal) => {
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        modal.classList.add('hidden');
+      }
+    });
+  });
+}
+
+bindModalBackdropClose();
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') {
+    return;
+  }
+  document.querySelectorAll('.modal:not(.hidden)').forEach((modal) => modal.classList.add('hidden'));
+  closeAllHints();
+});
+
 /* ====================== 初始化 ====================== */
 
 /**
- * 加载代理设置
+ * 加载代理设置与数据目录
  * @returns {Promise<void>}
  */
 async function loadSettings() {
   const data = await api('/api/settings');
   $('setting-proxy').value = data.proxyUrl || '';
+  $('data-dir').textContent = data.dataDir || '-';
 }
 
 /**
@@ -951,9 +1537,57 @@ async function saveSettings() {
   toast('代理设置已保存');
 }
 
-$('btn-save-proxy').onclick = () => saveSettings();
+$('btn-save-proxy').onclick = () => withLoading($('btn-save-proxy'), '保存中...', saveSettings);
+
+/**
+ * 探测本机常见代理端口，命中后自动填入输入框（不自动保存，由用户确认）
+ * @returns {Promise<void>}
+ */
+async function detectProxy() {
+  try {
+    const data = await api('/api/settings/detect-proxy', { method: 'POST' });
+    if (!data.found) {
+      toast('未检测到常见端口（7890/7897/10809/1080/8118/8888）上的可用代理，请手动填写', true);
+      return;
+    }
+    $('setting-proxy').value = data.proxyUrl;
+    toast(`已检测到代理 ${data.proxyUrl} 并填入，点击“保存”生效`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('btn-detect-proxy').onclick = () => withLoading($('btn-detect-proxy'), '检测中...', detectProxy);
+
+/**
+ * 清空代理设置并立即保存（恢复直连）
+ * @returns {Promise<void>}
+ */
+async function clearProxy() {
+  $('setting-proxy').value = '';
+  try {
+    await api('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxyUrl: '' }),
+    });
+    toast('已清空代理，恢复直连');
+    loadConnectivityInfo().catch(() => {});
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('btn-clear-proxy').onclick = () => withLoading($('btn-clear-proxy'), '清空中...', clearProxy);
 
 loadConfigs().catch((err) => toast(`初始化失败：${err.message}`, true));
 loadSettings().catch(() => {});
 loadCertKeys().catch((err) => toast(`私钥列表加载失败：${err.message}`, true));
 loadConnectivityInfo().catch(() => {});
+loadTaskHistory().catch(() => {});
+
+// 恢复上次所在的 Tab（默认停留上传页）
+const savedTab = localStorage.getItem('asc-active-tab');
+if (savedTab && savedTab !== 'upload') {
+  switchTab(savedTab);
+}

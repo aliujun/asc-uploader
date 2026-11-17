@@ -123,14 +123,40 @@ router.post('/:id/cancel', (req, res) => {
   res.json({ ok: true });
 });
 
+/** 不允许中断的阶段（文件已提交给 Apple，中断无法撤回） */
+const NON_ABORTABLE_STAGES = new Set(['COMMITTING', 'VALIDATING', 'WAITING_PROCESS', 'DISTRIBUTING']);
+
 /**
- * POST /api/tasks/:id/retry 重试失败任务
+ * POST /api/tasks/:id/abort 中断任务（仅提交校验之前允许；排队中直接取消）
+ * @returns {void}
+ */
+router.post('/:id/abort', (req, res) => {
+  const task = manager.findTask(req.params.id);
+  if (task && NON_ABORTABLE_STAGES.has(task.stage)) {
+    sendError(res, 400, '当前阶段文件已提交给 Apple，中断也无法撤回，请等待结果');
+    return;
+  }
+  const ok = manager.abort(req.params.id);
+  if (!ok) {
+    sendError(res, 400, '仅排队中或进行中的任务可以中断');
+    return;
+  }
+  res.json({ ok: true });
+});
+
+/**
+ * POST /api/tasks/:id/retry 重试失败或已取消的任务
  * @returns {void}
  */
 router.post('/:id/retry', (req, res) => {
+  const task = manager.findTask(req.params.id);
+  if (task && !findIpa(task.ipaId)) {
+    sendError(res, 400, '本地 IPA 缓存已不存在（服务重启或缓存被清理），请重新上传 IPA 创建新任务');
+    return;
+  }
   const ok = manager.retry(req.params.id);
   if (!ok) {
-    sendError(res, 400, '仅失败的任务可以重试');
+    sendError(res, 400, '仅失败或已取消的任务可以重试');
     return;
   }
   res.json({ ok: true });
@@ -144,6 +170,11 @@ router.delete('/:id', async (req, res) => {
   const task = manager.findTask(req.params.id);
   if (!task) {
     sendError(res, 404, '任务不存在');
+    return;
+  }
+  // 进行中的任务删除会连带清掉正在上传的 IPA 缓存文件，导致流水线中断异常，禁止删除
+  if (manager.isStageActive(task.stage)) {
+    sendError(res, 400, '任务进行中不允许删除，请等待任务完成/失败，或先中断后再删除');
     return;
   }
   try {

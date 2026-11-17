@@ -2,9 +2,16 @@
 
 const store = require('../config/store');
 const jwt = require('./jwt');
+const c = require('./term');
 
 /** App Store Connect API 基础地址（官方文档：https://api.appstoreconnect.apple.com） */
 const API_BASE = 'https://api.appstoreconnect.apple.com';
+
+/** 视为瞬时故障、可自动重试的 HTTP 状态码（Apple 服务端偶发 5xx） */
+const RETRYABLE_STATUS = new Set([500, 502, 503, 504]);
+
+/** GET 请求对瞬时故障（5xx/网络抖动）的最大自动重试次数，退避 1s/2s/4s */
+const MAX_TRANSIENT_RETRY = 3;
 
 /** @type {{agent: Object, proxyUrl: string}|null} 代理 Agent 缓存 */
 let proxyAgentCache = null;
@@ -60,9 +67,12 @@ async function doFetch(url, options = {}) {
 class AscClient {
   /**
    * @param {string} configId 配置 ID（对应 config.json 中的一条）
+   * @param {AbortSignal} [signal] 可选中断信号，触发时中断进行中的请求
    */
-  constructor(configId) {
+  constructor(configId, signal) {
     this.configId = configId;
+    /** @type {AbortSignal|null} 中断信号 */
+    this.signal = signal || null;
     /** @type {{token: string, expiresAt: number}|null} 当前 token 信息 */
     this.tokenInfo = null;
   }
@@ -82,6 +92,7 @@ class AscClient {
     }
     const p8Content = await store.readP8(config.keyFile);
     this.tokenInfo = jwt.sign({ issuerId: config.issuerId, keyId: config.keyId }, p8Content);
+    console.log(`${c.cyan('[ASC]')} JWT 已签发：配置「${config.name}」，keyId=${c.gray(config.keyId)}`);
     return this.tokenInfo.token;
   }
 
@@ -107,6 +118,8 @@ class AscClient {
   async request(method, path, opts = {}) {
     const maxRetry = opts.maxRetry ?? 2;
     let retried = 0;
+    /** 5xx/网络错误重试计数（仅幂等的 GET 请求自动重试，避免 POST/PATCH 重复执行副作用） */
+    let retriedTransient = 0;
     for (;;) {
       const token = await this.getToken();
       const headers = { Authorization: `Bearer ${token}` };
@@ -115,24 +128,52 @@ class AscClient {
         headers['Content-Type'] = 'application/json';
         body = JSON.stringify(opts.body);
       }
+      console.log(`${c.cyan('[ASC]')} ${c.gray(`${method} ${path}`)}${body ? c.gray(` 请求体：${body.slice(0, 500)}`) : ''}`);
+      const startedAt = Date.now();
       let response;
       try {
-        response = await doFetch(`${API_BASE}${path}`, { method, headers, body });
+        response = await doFetch(`${API_BASE}${path}`, { method, headers, body, signal: opts.signal || this.signal });
       } catch (err) {
+        if (err && (err.name === 'AbortError' || err.code === 'ABORT_ERR')) {
+          const abortErr = new Error('任务已中断');
+          abortErr.isAbort = true;
+          throw abortErr;
+        }
+        // GET 请求遇网络抖动（代理不稳定/ECONNRESET 等）自动退避重试
+        if (method === 'GET' && retriedTransient < MAX_TRANSIENT_RETRY) {
+          retriedTransient += 1;
+          const backoffMs = 1000 * 2 ** (retriedTransient - 1);
+          console.warn(`${c.cyan('[ASC]')} ${c.yellow(`${method} ${path} 网络失败：${err.message}，${backoffMs / 1000}s 后重试（第 ${retriedTransient} 次）`)}`);
+          await sleep(backoffMs);
+          continue;
+        }
+        console.error(`${c.cyan('[ASC]')} ${c.red(`${method} ${path} 网络失败：${err.message}`)}`);
         throw new Error(`网络请求失败：${err.message}（若在国内网络环境，请在“配置管理”页设置代理）`);
       }
+      const cost = Date.now() - startedAt;
       if (response.status === 401 && retried < maxRetry) {
         retried += 1;
+        console.warn(`${c.cyan('[ASC]')} ${c.yellow(`${method} ${path} -> 401 鉴权过期，重签 JWT 后重试（${cost}ms，第 ${retried} 次）`)}`);
         await this.forceRenewToken();
         continue;
       }
       if (response.status === 429 && retried < maxRetry) {
         retried += 1;
         const retryAfter = Number(response.headers.get('retry-after')) || 5;
+        console.warn(`${c.cyan('[ASC]')} ${c.yellow(`${method} ${path} -> 429 限流，${retryAfter}s 后重试（${cost}ms，第 ${retried} 次）`)}`);
         await sleep(retryAfter * 1000);
         continue;
       }
+      // Apple 服务端偶发 5xx（UNEXPECTED_ERROR 等），GET 请求自动退避重试
+      if (method === 'GET' && RETRYABLE_STATUS.has(response.status) && retriedTransient < MAX_TRANSIENT_RETRY) {
+        retriedTransient += 1;
+        const backoffMs = 1000 * 2 ** (retriedTransient - 1);
+        console.warn(`${c.cyan('[ASC]')} ${c.yellow(`${method} ${path} -> HTTP ${response.status} 服务端错误（${cost}ms），${backoffMs / 1000}s 后重试（第 ${retriedTransient} 次）`)}`);
+        await sleep(backoffMs);
+        continue;
+      }
       if (response.status === 204) {
+        console.log(`${c.cyan('[ASC]')} ${c.gray(`${method} ${path}`)} ${c.green(`-> 204 成功（${cost}ms）`)}`);
         return null;
       }
       const text = await response.text();
@@ -143,8 +184,10 @@ class AscClient {
         // 非 JSON 响应按原文抛出
       }
       if (!response.ok) {
+        console.error(`${c.cyan('[ASC]')} ${c.red(`${method} ${path} -> HTTP ${response.status} 失败（${cost}ms）：${text.slice(0, 300)}`)}`);
         throw new Error(buildAppleErrorMessage(response.status, data, text));
       }
+      console.log(`${c.cyan('[ASC]')} ${c.gray(`${method} ${path}`)} ${c.green(`-> HTTP ${response.status} 成功（${cost}ms，返回 ${(text || '').length} 字符）`)}`);
       return data;
     }
   }
@@ -159,13 +202,13 @@ class AscClient {
   }
 
   /**
-   * 获取指定 app 的 build 列表
+   * 获取指定 app 的 build 列表（按上传时间倒序，附带 preReleaseVersion 用于取短版本号）
    * @param {string} appId app ID
    * @param {number} [limit=50] 单页数量上限
    * @returns {Promise<Object>} ASC builds 响应
    */
   async listBuilds(appId, limit = 50) {
-    return this.request('GET', `/v1/apps/${appId}/builds?limit=${limit}&sort=-uploadedDate`);
+    return this.request('GET', `/v1/builds?filter[app]=${appId}&limit=${limit}&sort=-uploadedDate&include=preReleaseVersion`);
   }
 
   /**
@@ -234,11 +277,22 @@ class AscClient {
    * @returns {Promise<void>} 非 2xx 时抛出
    */
   async uploadChunk(uploadUrl, chunkBuffer, extraHeaders = {}) {
-    const response = await doFetch(uploadUrl, {
-      method: 'PUT',
-      headers: extraHeaders,
-      body: chunkBuffer,
-    });
+    let response;
+    try {
+      response = await doFetch(uploadUrl, {
+        method: 'PUT',
+        headers: extraHeaders,
+        body: chunkBuffer,
+        signal: this.signal,
+      });
+    } catch (err) {
+      if (err && (err.name === 'AbortError' || err.code === 'ABORT_ERR')) {
+        const abortErr = new Error('任务已中断');
+        abortErr.isAbort = true;
+        throw abortErr;
+      }
+      throw err;
+    }
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`分块上传失败（HTTP ${response.status}）：${text.slice(0, 300)}`);

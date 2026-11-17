@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { createClient } = require('../../core/asc-client');
+const c = require('../../core/term');
 
 const router = express.Router();
 
@@ -51,19 +52,31 @@ router.get('/:id/builds', async (req, res) => {
   }
   try {
     const data = await createClient(configId).listBuilds(req.params.id);
+    // 短版本号（CFBundleShortVersionString）不在 builds 资源上，需从 included 的 preReleaseVersion 中取
+    const preReleaseVersions = {};
+    (data.included || []).forEach((inc) => {
+      if (inc.type === 'preReleaseVersions' && inc.id) {
+        preReleaseVersions[inc.id] = inc.attributes || {};
+      }
+    });
     const builds = (data.data || []).map((build) => {
       const attrs = build.attributes || {};
+      const preRel = build.relationships && build.relationships.preReleaseVersion;
+      const preId = preRel && preRel.data && preRel.data.id;
+      const pre = preId ? preReleaseVersions[preId] : null;
       return {
         id: build.id,
         version: attrs.version,
-        shortVersion: attrs.cfBundleShortVersionString,
+        shortVersion: pre ? pre.version : null,
         processingState: attrs.processingState,
         uploadedDate: attrs.uploadedDate,
         usesNonExemptEncryption: attrs.usesNonExemptEncryption,
       };
     });
+    console.log(`${c.cyan('[Build列表]')} appId=${req.params.id} ${c.green(`获取成功，共 ${builds.length} 条`)}`);
     res.json({ builds });
   } catch (err) {
+    console.error(`${c.cyan('[Build列表]')} appId=${req.params.id} ${c.red(`获取失败：${err.message}`)}`);
     res.status(502).json({ error: err.message });
   }
 });

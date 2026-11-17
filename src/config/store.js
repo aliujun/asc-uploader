@@ -10,12 +10,12 @@ function configFile() {
   return path.join(getDir(), 'config.json');
 }
 
-/** config.json 在内存中的缓存，结构为 { configs: [], activeId: null }，避免每次请求都读盘 */
+/** config.json 在内存中的缓存，结构为 { configs: [] }，避免每次请求都读盘 */
 let cache = null;
 
 /**
  * 读取缓存对象（带懒加载），文件不存在时返回初始结构
- * @returns {Promise<{configs: Array<Object>, activeId: string|null}>}
+ * @returns {Promise<{configs: Array<Object>}>}
  */
 async function load() {
   if (cache) {
@@ -27,13 +27,12 @@ async function load() {
     const parsed = JSON.parse(raw);
     cache = {
       configs: Array.isArray(parsed.configs) ? parsed.configs : [],
-      activeId: parsed.activeId || null,
     };
   } catch (err) {
     if (err.code !== 'ENOENT') {
       throw err;
     }
-    cache = { configs: [], activeId: null };
+    cache = { configs: [] };
   }
   return cache;
 }
@@ -177,9 +176,6 @@ async function remove(id) {
     return false;
   }
   const [removed] = data.configs.splice(index, 1);
-  if (data.activeId === id) {
-    data.activeId = null;
-  }
   await removeP8(removed.keyFile);
   await save();
   return true;
@@ -196,37 +192,12 @@ async function findById(id) {
 }
 
 /**
- * 设置激活的配置（单选激活）
- * @param {string} id 配置 ID
- * @returns {Promise<boolean>} 是否设置成功
- */
-async function setActive(id) {
-  const data = await load();
-  if (!data.configs.some((c) => c.id === id)) {
-    return false;
-  }
-  data.activeId = id;
-  await save();
-  return true;
-}
-
-/**
- * 获取当前激活的配置 ID
- * @returns {Promise<string|null>} 激活配置 ID
- */
-async function getActiveId() {
-  const data = await load();
-  return data.activeId;
-}
-
-/**
  * 获取脱敏后的配置列表（不含密钥内容）
- * @returns {Promise<{configs: Array<Object>, activeId: string|null}>}
+ * @returns {Promise<{configs: Array<Object>}>}
  */
 async function listSafe() {
   const data = await load();
   return {
-    activeId: data.activeId,
     configs: data.configs.map((c) => ({
       id: c.id,
       name: c.name,
@@ -281,4 +252,4 @@ async function saveSettings(patch) {
   return current;
 }
 
-module.exports = { create, update, remove, findById, setActive, getActiveId, listSafe, readP8, validate, loadSettings, saveSettings };
+module.exports = { create, update, remove, findById, listSafe, readP8, validate, loadSettings, saveSettings };

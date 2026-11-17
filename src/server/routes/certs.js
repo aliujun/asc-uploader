@@ -47,6 +47,20 @@ router.get('/keys', async (req, res) => {
 });
 
 /**
+ * POST /api/certs/keys/import-p12 从 .p12 文件提取私钥并导入
+ * @returns {void}
+ */
+router.post('/keys/import-p12', async (req, res) => {
+  const { p12Base64, password, remark } = req.body || {};
+  try {
+    const entry = await certs.importP12(p12Base64, password || '123456', remark);
+    res.json(entry);
+  } catch (err) {
+    sendError(res, 400, err.message);
+  }
+});
+
+/**
  * POST /api/certs/keys/:keyId/describe 解析 .cer 证书信息（合成前预览）
  * @returns {void}
  */
@@ -83,8 +97,8 @@ router.post('/keys/:keyId/p12', async (req, res) => {
     sendError(res, 400, '证书内容不能为空');
     return;
   }
-  if (!password) {
-    sendError(res, 400, 'p12 导出密码不能为空');
+  if (!password || password.length < 6) {
+    sendError(res, 400, 'p12 导出密码至少 6 位');
     return;
   }
   try {

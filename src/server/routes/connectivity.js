@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { doFetch, resolveActiveProxyUrl } = require('../../core/asc-client');
+const c = require('../../core/term');
 
 const router = express.Router();
 
@@ -49,13 +50,16 @@ router.post('/test', async (req, res) => {
   try {
     const proxyUrl = await resolveActiveProxyUrl();
     const exit = proxyUrl || '直连（未配置代理）';
-    console.log(`[连通性测试] 开始，网络出口：${exit}`);
+    console.log(`${c.cyan('[连通性测试]')} 开始，网络出口：${exit}`);
     const results = [];
     for (const target of TARGETS) {
       results.push(await probe(target, exit));
     }
     const okCount = results.filter((r) => r.ok).length;
-    console.log(`[连通性测试] 完成：${okCount}/${results.length} 项连通`);
+    const summary = okCount === results.length
+      ? c.green(`完成：${okCount}/${results.length} 项连通`)
+      : c.yellow(`完成：${okCount}/${results.length} 项连通`);
+    console.log(`${c.cyan('[连通性测试]')} ${summary}`);
     res.json({ proxyUrl, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -80,7 +84,7 @@ async function probe(target, exitDesc) {
     // 读取并丢弃 body，避免连接悬挂
     await response.arrayBuffer().catch(() => {});
     const latencyMs = Date.now() - startAt;
-    console.log(`[连通性测试] ✓ ${target.url}（${exitDesc}）HTTP ${response.status}，${latencyMs}ms`);
+    console.log(`${c.cyan('[连通性测试]')} ${c.green(`✓ ${target.url}（${exitDesc}）HTTP ${response.status}，${latencyMs}ms`)}`);
     return {
       name: target.name,
       url: target.url,
@@ -93,7 +97,7 @@ async function probe(target, exitDesc) {
   } catch (err) {
     const latencyMs = Date.now() - startAt;
     const detail = describeError(err);
-    console.log(`[连通性测试] ✗ ${target.url}（${exitDesc}）失败，${latencyMs}ms，原因：${detail}`);
+    console.log(`${c.cyan('[连通性测试]')} ${c.red(`✗ ${target.url}（${exitDesc}）失败，${latencyMs}ms，原因：${detail}`)}`);
     return {
       name: target.name,
       url: target.url,
