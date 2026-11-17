@@ -1,0 +1,100 @@
+# App Store应用上架助手
+
+Windows 下的 App Store Connect（ASC）IPA 上传工具：本地 Web 界面操作，支持 TestFlight 分发、Build 状态查询、多 App 配置管理与 iOS 证书（CSR/p12）工具，可一键打包为免安装单文件 exe。
+
+- 基于 [App Store Connect API 4.1+](https://developer.apple.com/documentation/appstoreconnectapi) 全新的 `buildUploads` 分块上传接口，不依赖 Xcode、Transporter 或 iTMSTransporter
+- 原生 Node.js 实现，无原生编译依赖，`npm install` 即用
+
+## 功能特性
+
+### IPA 上传
+- 分块上传 + MD5 校验提交，自动重试（网络抖动 / 5xx / 429 限流）
+- 实时进度、逐条任务日志（终端同步输出彩色日志，便于排查）
+- 排队 / 准备 / 上传阶段可随时中断；提交校验后自动等待 Apple 校验与 build 处理结果
+- 历史任务列表：失败 / 已取消任务可一键重试（复用本地 IPA 缓存）
+
+### TestFlight 分发
+- 上传完成后自动加入指定测试组
+- 也可在 Build 列表中手动对任意 build 分发
+
+### Build 状态查询
+- 按 App 查看 build 列表（版本、处理状态、上传时间），处理状态中文化展示
+
+### 多 App 配置管理
+- 多套 API 密钥（.p8）配置独立管理，弹框编辑、一键验证连通性
+- p8 私钥内容脱敏存储，界面不回显
+
+### 证书工具（配合 uniapp / HBuilderX 云打包）
+- 生成 RSA 私钥与 CSR（通用名称随机生成，所属项目必填）
+- 合成 .p12：私钥与 .cer 自动配对校验，采用**传统 PBE-SHA1-3DES 格式**（HBuilderX 云打包兼容，openssl v3 的现代格式会被 HBuilderX 拒绝）
+- 导入已有 .p12 提取私钥（不填密码默认 `123456`），支持开发/发布双证书复用同一私钥
+
+### 网络与调试
+- 代理设置（全局生效，含分块上传），常见代理端口一键自动检测（Clash / v2rayN / Fiddler 等）
+- 连通性测试：可视化检测 Apple 各服务可达性
+- 终端彩色日志：每次 ASC 请求的完整轨迹（方法、路径、耗时、原始错误响应）
+
+## 快速开始
+
+### 方式一：Node.js 运行
+
+要求 Node.js ≥ 20。
+
+```bash
+npm install
+npm start
+```
+
+启动后自动打开浏览器（默认 `http://localhost:8380`，端口被占自动顺延）。
+
+### 方式二：打包单文件 exe
+
+```bash
+npm run pkg
+```
+
+生成 `dist/AppStore应用上架助手.exe`，双击即可运行，无需安装 Node.js。
+
+## 使用说明
+
+### 1. 创建 API 密钥
+
+在 [App Store Connect](https://appstoreconnect.apple.com/access/integrations/api) 创建团队密钥，获得 **Key ID**、**Issuer ID** 和 **.p8 私钥文件**（密钥只能下载一次，请妥善保存）。
+
+### 2. 添加配置
+
+进入「配置管理」→ 新增配置，填入配置名称、Issuer ID、Key ID 与 .p8 私钥内容，点击「验证」确认可用。
+
+### 3. 上传 IPA
+
+进入「上传」页，拖拽或点击选择 .ipa 文件（自动解析 bundleId 与版本号），选择配置，按需勾选「自动加入 TestFlight 测试组」，提交任务后在「任务进度」中观察各阶段状态与日志。
+
+### 4. 证书工具（可选）
+
+进入「证书工具」，按引导生成 CSR → 到 [Apple 开发者后台](https://developer.apple.com/account/resources/certificates/list) 签发 .cer → 回到工具合成 .p12，直接用于 HBuilderX 云打包。
+
+## 数据与安全
+
+所有本地数据（配置索引、p8 密钥、私钥、IPA 缓存、任务记录）存放在用户目录下的数据目录中（界面「配置管理」页可查看具体路径）。`.p8` / `.p12` / `.ipa` 等敏感文件均已加入 `.gitignore`，请勿将数据目录提交到仓库。
+
+## 常见问题
+
+| 问题 | 说明 |
+| --- | --- |
+| 直连 Apple 失败 / 请求超时 | 国内网络环境请在「配置管理」页配置代理，可点「自动检测」探测本机代理端口 |
+| `409 The bundle version must be higher than the previously uploaded version` | build 号不高于账号下已有版本，请在打包工具中递增版本号后重新打包上传 |
+| HBuilderX 云打包报 `import failed` / `read key failed` | 使用本工具合成的 .p12（传统 3DES 格式）即可避免；确认 .cer 与私钥是同一 CSR 配对签发 |
+| Apple 校验 / build 处理需要多久 | 通常几分钟内，个别高峰期可能更久；工具会自动轮询并在完成后提醒 |
+
+## 开发
+
+```bash
+npm start    # 启动（src/index.js）
+npm run pkg  # 打包 Windows 单文件 exe
+```
+
+技术栈：Node.js 原生 `fetch` / `undici`（代理与分块上传）、`node-forge`（证书）、`express`（本地服务）、`yauzl`（IPA 解析）。前端为原生 HTML/CSS/JS 单页实现，无构建步骤。
+
+## 许可证
+
+[MIT](./LICENSE)
