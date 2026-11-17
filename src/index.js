@@ -19,6 +19,63 @@ const START_PORT = 8380;
 const MAX_PORT_TRIES = 10;
 
 /**
+ * 打印命令行帮助
+ * @returns {void}
+ */
+function printHelp() {
+	console.log(term.bold(`App Store应用上架助手 v${version}`));
+	console.log('');
+	console.log('用法：asc-uploader [选项]');
+	console.log('');
+	console.log('选项：');
+	console.log('  --port <n>     指定起始端口（默认 8380，被占自动顺延）');
+	console.log('  --no-open      启动后不自动打开浏览器');
+	console.log('  -h, --help     显示帮助');
+	console.log('  -v, --version  显示版本号');
+	console.log('');
+	console.log('启动后所有操作在浏览器界面中完成（上传 / 配置管理 / Build / 证书工具 / 连通性）。');
+	console.log(`数据目录：${getDir()}（可用环境变量 ASC_UPLOADER_HOME 自定义）`);
+}
+
+/**
+ * 解析命令行参数（--help/--version 时打印后直接退出）
+ * @param {string[]} argv process.argv.slice(2)
+ * @returns {{port: number, noOpen: boolean}} 运行选项
+ */
+function parseArgs(argv) {
+	const opts = { port: START_PORT, noOpen: false };
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === '-h' || arg === '--help') {
+			printHelp();
+			process.exit(0);
+		}
+		if (arg === '-v' || arg === '--version') {
+			console.log(version);
+			process.exit(0);
+		}
+		if (arg === '--port') {
+			const port = Number(argv[i + 1]);
+			if (!Number.isInteger(port) || port < 1 || port > 65535) {
+				console.error(`--port 需要一个 1-65535 的端口号，收到：${argv[i + 1] ?? '(无)'}`);
+				process.exit(1);
+			}
+			opts.port = port;
+			i += 1;
+			continue;
+		}
+		if (arg === '--no-open') {
+			opts.noOpen = true;
+			continue;
+		}
+		console.error(`未知参数：${arg}`);
+		printHelp();
+		process.exit(1);
+	}
+	return opts;
+}
+
+/**
  * 打开系统默认浏览器
  * @param {string} url 目标地址
  * @returns {void}
@@ -57,21 +114,24 @@ function printBanner(url) {
  * @returns {Promise<void>}
  */
 async function main() {
+	const opts = parseArgs(process.argv.slice(2));
 	await loadTasks();
 	const app = createApp();
 
 	for (let i = 0; i < MAX_PORT_TRIES; i++) {
-		const port = START_PORT + i;
+		const port = opts.port + i;
 		const ok = await tryListen(app, port);
 		if (!ok) {
 			continue;
 		}
 		const url = `http://localhost:${port}`;
 		printBanner(url);
-		openBrowser(url);
+		if (!opts.noOpen) {
+			openBrowser(url);
+		}
 		return;
 	}
-	console.error(`端口 ${START_PORT}-${START_PORT + MAX_PORT_TRIES - 1} 均被占用，启动失败`);
+	console.error(`端口 ${opts.port}-${opts.port + MAX_PORT_TRIES - 1} 均被占用，启动失败`);
 	process.exit(1);
 }
 
