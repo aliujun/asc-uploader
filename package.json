@@ -1,9 +1,21 @@
 {
-  "name": "apple-uploader-tools",
+  "name": "asc-uploader",
   "version": "1.0.0",
   "description": "App Store应用上架助手：Windows 下的 App Store Connect IPA 上传工具（TestFlight 分发、Build 查询、多配置管理、CSR/p12 证书工具）",
   "main": "src/index.js",
-  "bin": "src/index.js",
+  "bin": {
+    "asc-uploader": "src/index.js",
+    "asc-up": "src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "src/",
+    "public/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node src/index.js",
     "pkg": "pkg . --output dist/AppStore应用上架助手.exe"

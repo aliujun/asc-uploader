@@ -34,26 +34,35 @@ Windows 下的 App Store Connect（ASC）IPA 上传工具：本地 Web 界面操
 - 连通性测试：可视化检测 Apple 各服务可达性
 - 终端彩色日志：每次 ASC 请求的完整轨迹（方法、路径、耗时、原始错误响应）
 
-## 快速开始
+## 快速开始（三选一）
 
-### 方式一：Node.js 运行
-
-要求 Node.js ≥ 20。
+### 方式一：npx 一行命令运行（推荐，需 Node.js ≥ 20）
 
 ```bash
+npx asc-uploader
+```
+
+首次运行自动下载，之后走本地缓存；升级执行 `npx asc-uploader@latest`。全局安装后可用简写命令：
+
+```bash
+npm i -g asc-uploader
+asc-up
+```
+
+### 方式二：源码运行
+
+```bash
+git clone https://github.com/your-name/asc-uploader.git
+cd asc-uploader
 npm install
 npm start
 ```
 
+### 方式三：免安装单文件 exe（无需 Node.js）
+
+从 [Releases](../../releases) 页面下载 `AppStore应用上架助手.exe`，双击即可运行，完全离线，适合分发给未安装 Node.js 环境的同事。
+
 启动后自动打开浏览器（默认 `http://localhost:8380`，端口被占自动顺延）。
-
-### 方式二：打包单文件 exe
-
-```bash
-npm run pkg
-```
-
-生成 `dist/AppStore应用上架助手.exe`，双击即可运行，无需安装 Node.js。
 
 ## 使用说明
 
@@ -90,8 +99,14 @@ npm run pkg
 
 ```bash
 npm start    # 启动（src/index.js）
-npm run pkg  # 打包 Windows 单文件 exe
+npm run pkg  # 打包 Windows 单文件 exe（dist/AppStore应用上架助手.exe）
 ```
+
+### 发版流程备忘
+
+1. `npm version patch`（或 minor / major）递增版本号并生成 tag
+2. `npm publish` 发布到 npm（npx 通道生效）
+3. `npm run pkg` 打包 exe，随 tag 上传到 GitHub Releases（exe 通道）
 
 技术栈：Node.js 原生 `fetch` / `undici`（代理与分块上传）、`node-forge`（证书）、`express`（本地服务）、`yauzl`（IPA 解析）。前端为原生 HTML/CSS/JS 单页实现，无构建步骤。
 
