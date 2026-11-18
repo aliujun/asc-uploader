@@ -60,7 +60,7 @@ npm start
 
 ### 方式三：免安装单文件 exe（无需 Node.js）
 
-从 [Releases](../../releases) 页面下载 `AppStore应用上架助手.exe`，双击即可运行，完全离线，适合分发给未安装 Node.js 环境的同事。
+从 [Releases](../../releases) 页面下载 `AppStore.exe`，双击即可运行，完全离线，适合分发给未安装 Node.js 环境的同事。
 
 启动后自动打开浏览器（默认 `http://localhost:8380`，端口被占自动顺延）。
 
