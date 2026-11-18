@@ -52,7 +52,7 @@ asc-up
 ### 方式二：源码运行
 
 ```bash
-git clone https://github.com/your-name/asc-uploader.git
+git clone https://github.com/aliujun/asc-uploader.git
 cd asc-uploader
 npm install
 npm start

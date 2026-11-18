@@ -27,6 +27,10 @@
     "testflight"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aliujun/asc-uploader.git"
+  },
   "dependencies": {
     "bplist-parser": "^0.3.2",
     "express": "^4.21.2",
