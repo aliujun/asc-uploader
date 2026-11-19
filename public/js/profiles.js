@@ -43,7 +43,7 @@ export const template = `<section id="tab-profiles" class="tab-panel">
             </div>
 
             <div id="profile-create-modal" class="modal hidden">
-                <div class="modal-box">
+                <div class="modal-box wide">
                     <h3>生成描述文件</h3>
                     <div class="form-row">
                         <label>ASC 配置<span class="req">*</span></label>
@@ -135,12 +135,37 @@ function stateBadgeHtml(profileState) {
  */
 function typeLabel(type) {
   const map = {
+    // 描述文件类型（profileType）
     IOS_APP_STORE: 'App Store',
     IOS_APP_ADHOC: 'Ad Hoc',
     IOS_APP_DEVELOPMENT: '开发',
     IOS_APP_INHOUSE: '企业',
+    // 证书类型（certificateType），文案与 Apple Developer 官网 TYPE 列一致
+    IOS_DISTRIBUTION: 'iOS Distribution',
+    DISTRIBUTION: 'Distribution',
+    IOS_DEVELOPMENT: 'iOS Development',
+    DEVELOPMENT: 'Development',
+    APPLE_DEVELOPMENT: 'Apple Development',
+    APPLE_DISTRIBUTION: 'Apple Distribution',
   };
   return map[type] || type || '未知类型';
+}
+
+/**
+ * 证书类型对应的英文环境标识（用于下载文件名拼接，空格转下划线）
+ * @param {string} type ASC 证书类型枚举
+ * @returns {string} 形如 iOS_Distribution 的环境名，未知时原样返回或空串
+ */
+function certEnvLabel(type) {
+  const map = {
+    IOS_DISTRIBUTION: 'iOS_Distribution',
+    DISTRIBUTION: 'Distribution',
+    IOS_DEVELOPMENT: 'iOS_Development',
+    DEVELOPMENT: 'Development',
+    APPLE_DEVELOPMENT: 'Apple_Development',
+    APPLE_DISTRIBUTION: 'Apple_Distribution',
+  };
+  return map[type] || (type || '').replace(/\s+/g, '_');
 }
 
 /**
@@ -241,7 +266,15 @@ function renderProfileList() {
         <button class="small danger" data-act="delete">删除</button>
       </div>`;
     row.querySelector('[data-act="download"]').onclick = () => downloadProfile(profile);
-    row.querySelector('[data-act="delete"]').onclick = () => deleteProfile(profile);
+    row.querySelector('[data-act="delete"]').onclick = (event) => {
+      const label = profile.name || profile.id;
+      const goOn = confirm(`确定删除描述文件「${label}」（${profile.bundleId || '-'}）？\n`
+        + '删除后立即失效且不可恢复，使用它的打包签名会失败，但可以重新生成。');
+      if (!goOn) {
+        return;
+      }
+      withLoading(event.currentTarget, '删除中...', () => deleteProfile(profile));
+    };
     wrap.appendChild(row);
   });
 }
@@ -377,26 +410,21 @@ async function downloadProfile(profile) {
     if (!response.ok) {
       throw new Error(`下载失败（HTTP ${response.status}）`);
     }
-    const safeName = (profile.bundleName || profile.bundleId || 'profile').replace(/[\\/:*?"<>|]/g, '');
-    await downloadFile(`${safeName}-${profile.name || 'profile'}.mobileprovision`, blob);
-    toast('描述文件已开始下载');
+    const safeName = (profile.name || 'profile').replace(/[\\/:*?"<>|]/g, '');
+    // 文件名拼接关联证书的环境（英文），如 名称_Distribution.mobileprovision
+    const envLabel = profile.certs && profile.certs.length > 0 ? certEnvLabel(profile.certs[0].certificateType) : '';
+    await downloadFile(envLabel ? `${safeName}_${envLabel}.mobileprovision` : `${safeName}.mobileprovision`, blob);
   } catch (err) {
     toast(err.message, true);
   }
 }
 
 /**
- * 删除描述文件（二次确认后调用 ASC API，成功后刷新列表）
+ * 删除描述文件（调用前需已确认，成功后刷新列表）
  * @param {Object} profile 描述文件条目
  * @returns {Promise<void>}
  */
 async function deleteProfile(profile) {
-  const label = profile.name || profile.id;
-  const goOn = confirm(`确定删除描述文件「${label}」（${profile.bundleId || '-'}）？\n`
-    + '删除后立即失效且不可恢复，使用它的打包签名会失败，但可以重新生成。');
-  if (!goOn) {
-    return;
-  }
   try {
     await api(`/api/profiles/${encodeURIComponent(profile.id)}?configId=${encodeURIComponent(state.configId)}`, {
       method: 'DELETE',
@@ -436,7 +464,10 @@ async function submitCreate() {
           throw new Error(`下载失败（HTTP ${response.status}）`);
         }
         const safeName = (created.name || form.name).replace(/[\\/:*?"<>|]/g, '');
-        await downloadFile(`${safeName}.mobileprovision`, blob);
+        // 文件名拼接所选证书的环境（英文），多张证书时取第一张的类型
+        const firstCert = state.certs.find((cert) => cert.id === (form.certificateIds || [])[0]);
+        const envLabel = firstCert ? certEnvLabel(firstCert.certificateType) : '';
+        await downloadFile(envLabel ? `${safeName}_${envLabel}.mobileprovision` : `${safeName}.mobileprovision`, blob);
         closeCreateModal();
         toast('描述文件已生成并开始下载');
       } catch (downloadErr) {
