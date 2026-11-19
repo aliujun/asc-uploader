@@ -3,7 +3,7 @@ import { $, enhanceSelect, bindModalBackdropClose, toast } from './common.js';
 import * as expiryBanner from './expiry-banner.js';
 
 /** 页签注册表：顺序即导航顺序，每个值对应 js/ 下的同名组件文件 */
-const TABS = ['upload', 'configs', 'builds', 'certs', 'asc-certs', 'devices', 'profiles', 'connectivity'];
+const TABS = ['upload', 'configs', 'builds', 'certs', 'asc-certs', 'devices', 'profiles', 'expiry-overview', 'connectivity'];
 
 /** 已加载组件模块缓存（name → module） */
 const modules = new Map();

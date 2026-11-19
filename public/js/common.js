@@ -264,6 +264,30 @@ export function daysLeft(expirationDate) {
 }
 
 /**
+ * ASC 类型枚举（描述文件 profileType 与证书 certificateType）→ 展示文案。
+ * 描述文件类型为中文，证书类型文案与 Apple Developer 官网 TYPE 列一致。
+ * @param {string} type ASC 类型枚举
+ * @returns {string} 展示文案，未知时原样返回
+ */
+export function typeLabel(type) {
+  const map = {
+    // 描述文件类型（profileType）
+    IOS_APP_STORE: 'App Store',
+    IOS_APP_ADHOC: 'Ad Hoc',
+    IOS_APP_DEVELOPMENT: '开发',
+    IOS_APP_INHOUSE: '企业',
+    // 证书类型（certificateType），文案与 Apple Developer 官网 TYPE 列一致
+    IOS_DISTRIBUTION: 'iOS Distribution',
+    DISTRIBUTION: 'Distribution',
+    IOS_DEVELOPMENT: 'iOS Development',
+    DEVELOPMENT: 'Development',
+    APPLE_DEVELOPMENT: 'Apple Development',
+    APPLE_DISTRIBUTION: 'Apple Distribution',
+  };
+  return map[type] || type || '未知类型';
+}
+
+/**
  * 生成剩余天数徽章 HTML（红 ≤30 天/已过期、黄 31~60 天、绿 >60 天）
  * @param {string} expirationDate 到期时间（ISO 字符串）
  * @returns {string} 徽章 HTML，无有效期时返回空串

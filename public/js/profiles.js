@@ -1,6 +1,6 @@
 /* 描述文件组件：Profiles 列表、到期看板、下载 .mobileprovision、删除、生成 App Store / Ad Hoc / 开发描述文件 */
 import {
-  $, api, daysLeft, downloadFile, escapeHtml, expiryBadgeHtml, formatDate, toast, withLoading,
+  $, api, daysLeft, downloadFile, escapeHtml, expiryBadgeHtml, formatDate, toast, typeLabel, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -100,33 +100,10 @@ const PROFILE_STATE_TEXT = {
  * @param {string} profileState 状态英文标识（ACTIVE/EXPIRED/INVALID）
  * @returns {string} 徽章 HTML
  */
-function stateBadgeHtml(profileState) {
+export function stateBadgeHtml(profileState) {
   const text = PROFILE_STATE_TEXT[profileState] || profileState || '-';
   const cls = profileState === 'ACTIVE' ? 'ok' : 'err';
   return `<span class="badge ${cls}">${escapeHtml(text)}</span>`;
-}
-
-/**
- * 描述文件类型的中文展示文案
- * @param {string} type ASC 描述文件类型枚举
- * @returns {string} 展示文案
- */
-function typeLabel(type) {
-  const map = {
-    // 描述文件类型（profileType）
-    IOS_APP_STORE: 'App Store',
-    IOS_APP_ADHOC: 'Ad Hoc',
-    IOS_APP_DEVELOPMENT: '开发',
-    IOS_APP_INHOUSE: '企业',
-    // 证书类型（certificateType），文案与 Apple Developer 官网 TYPE 列一致
-    IOS_DISTRIBUTION: 'iOS Distribution',
-    DISTRIBUTION: 'Distribution',
-    IOS_DEVELOPMENT: 'iOS Development',
-    DEVELOPMENT: 'Development',
-    APPLE_DEVELOPMENT: 'Apple Development',
-    APPLE_DISTRIBUTION: 'Apple Distribution',
-  };
-  return map[type] || type || '未知类型';
 }
 
 /**

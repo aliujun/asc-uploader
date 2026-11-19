@@ -107,7 +107,7 @@ router.get('/', async (req, res) => {
   try {
     const { configs } = await store.listSafe();
     const items = await runPool(configs, MAX_CONCURRENCY, fetchConfigExpiry);
-    res.json({ items });
+    res.json({ items, windowDays: EXPIRY_WINDOW_DAYS });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }

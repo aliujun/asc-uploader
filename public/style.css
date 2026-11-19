@@ -667,16 +667,15 @@ textarea {
 	resize: none;
 }
 
-/* 全局到期横幅（#expiry-banner，由 expiry-banner.js 填充） */
+/* 全局到期摘要条（#expiry-banner，单行提醒 + 查看明细/刷新按钮） */
 .expiry-banner {
 	display: flex;
-	align-items: flex-start;
-	gap: 12px;
-	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
 	max-width: 980px;
 	margin: 0 auto 12px;
-	padding: 10px 14px;
-	background: var(--card);
+	padding: 8px 14px;
+	background: #fff7e6;
 	border: 1px solid var(--warn);
 	border-radius: 8px;
 	font-size: 13px;
@@ -684,26 +683,28 @@ textarea {
 .expiry-banner.hidden {
 	display: none !important;
 }
-.expiry-title {
+.expiry-banner .expiry-title {
 	font-weight: 600;
 	color: var(--warn);
-	line-height: 24px;
 	white-space: nowrap;
 }
-.expiry-list {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
+.expiry-banner .expiry-text {
 	flex: 1;
 	min-width: 0;
 }
-.expiry-item {
-	line-height: 24px;
-	word-break: break-all;
+/* 到期总览页分组块（expiry-overview.js 渲染） */
+.expiry-group {
+	margin-bottom: 16px;
 }
-.expiry-item b {
-	margin-right: 6px;
+.expiry-group:last-child {
+	margin-bottom: 0;
 }
-.expiry-item .badge {
-	margin: 0 3px 0 4px;
+.expiry-group-title {
+	font-weight: 600;
+	font-size: 14px;
+	margin-bottom: 6px;
+}
+.expiry-group-title .badge {
+	margin-left: 4px;
+	font-weight: 400;
 }
