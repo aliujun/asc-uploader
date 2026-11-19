@@ -251,6 +251,54 @@ export function bindModalBackdropClose() {
 }
 
 /**
+ * 计算剩余有效天数
+ * @param {string} expirationDate 到期时间（ISO 字符串）
+ * @returns {number|null} 剩余天数（负数表示已过期），无有效期或无效日期时返回 null
+ */
+export function daysLeft(expirationDate) {
+  if (!expirationDate) {
+    return null;
+  }
+  const diff = Math.ceil((new Date(expirationDate).getTime() - Date.now()) / 86400000);
+  return Number.isFinite(diff) ? diff : null;
+}
+
+/**
+ * 生成剩余天数徽章 HTML（红 ≤30 天/已过期、黄 31~60 天、绿 >60 天）
+ * @param {string} expirationDate 到期时间（ISO 字符串）
+ * @returns {string} 徽章 HTML，无有效期时返回空串
+ */
+export function expiryBadgeHtml(expirationDate) {
+  const left = daysLeft(expirationDate);
+  if (left === null) {
+    return '';
+  }
+  if (left < 0) {
+    return `<span class="badge err">已过期 ${-left} 天</span>`;
+  }
+  if (left <= 30) {
+    return `<span class="badge err">剩 ${left} 天</span>`;
+  }
+  if (left <= 60) {
+    return `<span class="badge warn">剩 ${left} 天</span>`;
+  }
+  return `<span class="badge ok">剩 ${left} 天</span>`;
+}
+
+/**
+ * 格式化日期为本地日期文本
+ * @param {string} iso ISO 时间字符串
+ * @returns {string} 本地日期，无效时返回 '-'
+ */
+export function formatDate(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '-';
+  }
+  return date.toLocaleDateString('zh-CN');
+}
+
+/**
  * 关闭页面上所有已打开的 ⓘ 提示
  * @returns {void}
  */

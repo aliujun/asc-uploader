@@ -1,6 +1,6 @@
 /* 证书管理组件：ASC API 证书列表、签发（自动合成 p12 下载）、吊销、到期看板 */
 import {
-  $, api, downloadFile, escapeHtml, toast, withLoading,
+  $, api, daysLeft, downloadFile, escapeHtml, expiryBadgeHtml, formatDate, toast, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -81,41 +81,6 @@ export const template = `<section id="tab-asc-certs" class="tab-panel">
         </section>`;
 
 /**
- * 计算证书剩余有效天数
- * @param {string} expirationDate 到期时间（ISO 字符串）
- * @returns {number|null} 剩余天数（负数表示已过期），无有效期时返回 null
- */
-function daysLeft(expirationDate) {
-  if (!expirationDate) {
-    return null;
-  }
-  const diff = Math.ceil((new Date(expirationDate).getTime() - Date.now()) / 86400000);
-  return Number.isFinite(diff) ? diff : null;
-}
-
-/**
- * 生成剩余天数徽章 HTML（红 ≤30 天/已过期、黄 31~60 天、绿 >60 天）
- * @param {Object} cert 证书条目
- * @returns {string} 徽章 HTML，无有效期时返回空串
- */
-function expiryBadgeHtml(cert) {
-  const left = daysLeft(cert.expirationDate);
-  if (left === null) {
-    return '';
-  }
-  if (left < 0) {
-    return `<span class="badge err">已过期 ${-left} 天</span>`;
-  }
-  if (left <= 30) {
-    return `<span class="badge err">剩 ${left} 天</span>`;
-  }
-  if (left <= 60) {
-    return `<span class="badge warn">剩 ${left} 天</span>`;
-  }
-  return `<span class="badge ok">剩 ${left} 天</span>`;
-}
-
-/**
  * 证书类型的展示文案（与 Apple Developer 官网 Certificates 页 TYPE 列一致）
  * @param {string} type ASC 证书类型枚举
  * @returns {string} 展示文案
@@ -130,19 +95,6 @@ function typeLabel(type) {
     APPLE_DISTRIBUTION: 'Apple Distribution',
   };
   return map[type] || type || '未知类型';
-}
-
-/**
- * 格式化到期日期为本地日期文本
- * @param {string} iso ISO 时间字符串
- * @returns {string} 本地日期，无效时返回 '-'
- */
-function formatDate(iso) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return '-';
-  }
-  return date.toLocaleDateString('zh-CN');
 }
 
 /**
@@ -221,7 +173,7 @@ function renderCertList() {
       <div>
         <span class="name">${escapeHtml(cert.displayName || '未命名证书')}</span>
         <span class="badge">${escapeHtml(typeLabel(cert.certificateType))}</span>
-        ${expiryBadgeHtml(cert)}
+        ${expiryBadgeHtml(cert.expirationDate)}
         <div class="meta">序列号 ${escapeHtml(cert.serialNumber || '-')} · 到期 ${escapeHtml(formatDate(cert.expirationDate))}</div>
       </div>
       <div class="actions">
@@ -354,7 +306,7 @@ async function submitIssue() {
       const nameParts = [safeRemark, typeLabelPart].filter(Boolean).join('-');
       await downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate-issued.p12', blob);
       closeIssueModal();
-      toast('证书已签发，.p12 已合成并开始下载');
+      toast('证书已签发，.p12 已合成并下载（同时已自动备份）');
       state.configId = form.configId;
       $('asc-cert-config').value = form.configId;
       loadCertList();

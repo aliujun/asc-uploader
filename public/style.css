@@ -666,3 +666,44 @@ table.builds td.conn-error {
 textarea {
 	resize: none;
 }
+
+/* 全局到期横幅（#expiry-banner，由 expiry-banner.js 填充） */
+.expiry-banner {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	flex-wrap: wrap;
+	max-width: 980px;
+	margin: 0 auto 12px;
+	padding: 10px 14px;
+	background: var(--card);
+	border: 1px solid var(--warn);
+	border-radius: 8px;
+	font-size: 13px;
+}
+.expiry-banner.hidden {
+	display: none !important;
+}
+.expiry-title {
+	font-weight: 600;
+	color: var(--warn);
+	line-height: 24px;
+	white-space: nowrap;
+}
+.expiry-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	flex: 1;
+	min-width: 0;
+}
+.expiry-item {
+	line-height: 24px;
+	word-break: break-all;
+}
+.expiry-item b {
+	margin-right: 6px;
+}
+.expiry-item .badge {
+	margin: 0 3px 0 4px;
+}

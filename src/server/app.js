@@ -23,6 +23,7 @@ function createApp() {
   app.use('/api/profiles', require('./routes/profiles'));
   app.use('/api/devices', require('./routes/devices'));
   app.use('/api/connectivity', require('./routes/connectivity'));
+  app.use('/api/expiry-overview', require('./routes/expiry-overview'));
 
   // JSON 解析错误兜底
   app.use((err, req, res, next) => {

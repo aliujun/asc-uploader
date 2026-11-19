@@ -1,6 +1,6 @@
 /* 上传页组件：IPA 选择/拖拽、本地进度、提交任务（SSE 实时进度）、历史任务 */
 import {
-  $, api, escapeHtml, fmtSize, toast, withLoading,
+  $, api, daysLeft, escapeHtml, formatDate, fmtSize, toast, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -214,10 +214,18 @@ function startLocalUpload(file) {
 function renderIpaMeta(meta) {
   const el = $('ipa-meta');
   el.classList.remove('hidden');
+  const profile = meta.profile;
+  let profileLine = '';
+  if (profile) {
+    const left = daysLeft(profile.expirationDate);
+    const expiredText = left !== null && left < 0 ? ' <span style="color:var(--err)">已过期，上传会被 Apple 拒绝</span>' : '';
+    profileLine = `描述文件: 「${escapeHtml(profile.name || '未命名')}」${profile.typeLabel ? `（${escapeHtml(profile.typeLabel)}）` : ''} · 到期 ${formatDate(profile.expirationDate)}${expiredText}<br>`;
+  }
   el.innerHTML = `
     <b>${escapeHtml(meta.filename)}</b>（${fmtSize(meta.sizeBytes)}）<br>
     bundleId: ${meta.bundleId ? escapeHtml(meta.bundleId) : '<span style="color:var(--err)">未解析到</span>'} ·
     版本: ${meta.shortVersion ? escapeHtml(meta.shortVersion) : '?'} (${meta.buildVersion ? escapeHtml(meta.buildVersion) : '?'})<br>
+    ${profileLine}
     MD5: ${escapeHtml(meta.md5)}`;
 }
 

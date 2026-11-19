@@ -2,6 +2,7 @@
 
 const express = require('express');
 const manager = require('../../tasks/task-manager');
+const provision = require('../../core/provision');
 const { findIpa, removeIpa } = require('./ipa');
 
 const router = express.Router();
@@ -15,6 +16,70 @@ const router = express.Router();
  */
 function sendError(res, status, message) {
   res.status(status).json({ error: message });
+}
+
+/**
+ * 格式化日期为本地日期文本
+ * @param {string} iso ISO 时间字符串
+ * @returns {string} 本地日期，无效时返回 '-'
+ */
+function formatDate(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '-';
+  }
+  return date.toLocaleDateString('zh-CN');
+}
+
+/**
+ * 预检 IPA 签名描述文件（描述文件解析失败时跳过校验，避免误伤正常上传）
+ * @param {Object} ipa IPA 元数据（含 profile 字段）
+ * @returns {string|null} 校验失败原因，通过或无法预检时返回 null
+ */
+function validateIpaProfile(ipa) {
+  const profile = ipa.profile;
+  if (!profile) {
+    return null;
+  }
+  if (profile.expirationDate) {
+    const left = Math.ceil((new Date(profile.expirationDate).getTime() - Date.now()) / 86400000);
+    if (Number.isFinite(left) && left < 0) {
+      return `IPA 内描述文件「${profile.name || '未命名'}」已于 ${formatDate(profile.expirationDate)} 过期，上传会被 Apple 拒绝，请重新打包后再上传`;
+    }
+  }
+  if (profile.type === 'IOS_APP_DEVELOPMENT') {
+    return 'IPA 使用开发签名的描述文件，无法上传 TestFlight / App Store，请用发布证书重新打包';
+  }
+  if (profile.bundleId && ipa.bundleId && !matchBundleId(profile.bundleId, ipa.bundleId)) {
+    return `IPA bundleId（${ipa.bundleId}）与描述文件签名的 App ID（${profile.bundleId}）不匹配，请确认打包配置`;
+  }
+  return null;
+}
+
+/**
+ * 通配符 App ID 匹配（描述文件 App ID 以 * 结尾时按前缀匹配）
+ * @param {string} profileBundleId 描述文件签名的 App ID（可能含通配符）
+ * @param {string} ipaBundleId IPA 实际 bundleId
+ * @returns {boolean} 是否匹配
+ */
+function matchBundleId(profileBundleId, ipaBundleId) {
+  if (profileBundleId === ipaBundleId) {
+    return true;
+  }
+  if (profileBundleId.endsWith('*')) {
+    return ipaBundleId.startsWith(profileBundleId.slice(0, -1));
+  }
+  return false;
+}
+
+/**
+ * 生成预检通过后的摘要文案（写入任务 meta，任务开始时输出到日志）
+ * @param {Object} profile 描述文件解析结果
+ * @returns {string} 摘要文案
+ */
+function buildPrecheckSummary(profile) {
+  const expiry = profile.expirationDate ? formatDate(profile.expirationDate) : '未知';
+  return `描述文件「${profile.name || '未命名'}」（${provision.typeLabel(profile.type)}），到期 ${expiry}`;
 }
 
 /**
@@ -48,6 +113,11 @@ router.post('/', async (req, res) => {
     sendError(res, 404, '配置不存在');
     return;
   }
+  const profileError = validateIpaProfile(ipa);
+  if (profileError) {
+    sendError(res, 400, profileError);
+    return;
+  }
   const task = manager.enqueue({
     configId: body.configId,
     configName: config.name,
@@ -59,6 +129,7 @@ router.post('/', async (req, res) => {
     buildVersion: ipa.buildVersion,
     autoTestflight,
     betaGroupIds,
+    precheckSummary: ipa.profile ? buildPrecheckSummary(ipa.profile) : '',
   });
   res.json(manager.toView(task));
 });

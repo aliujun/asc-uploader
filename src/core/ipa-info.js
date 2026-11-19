@@ -150,4 +150,4 @@ function extractFromXml(xml) {
   };
 }
 
-module.exports = { parseIpaInfo };
+module.exports = { parseIpaInfo, openZip, readEntry, closeZip };

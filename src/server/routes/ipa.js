@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { getDir, ensureDirs } = require('../../config/paths');
 const { parseIpaInfo } = require('../../core/ipa-info');
+const provision = require('../../core/provision');
 
 const router = express.Router();
 
@@ -100,6 +101,8 @@ router.put('/', async (req, res) => {
       const sizeBytes = received;
       const md5 = hash.digest('hex');
       const info = await parseIpaInfo(targetPath);
+      // 预检：解析签名描述文件（失败返回 null，不影响上传主流程）
+      const profile = await provision.parseEmbeddedProfile(targetPath);
       const meta = {
         ipaId,
         filename: fileName,
@@ -109,6 +112,7 @@ router.put('/', async (req, res) => {
         shortVersion: info.shortVersion,
         buildVersion: info.buildVersion,
         platform: 'IOS',
+        profile: profile || null,
         createdAt: new Date().toISOString(),
       };
       ipaRegistry.set(ipaId, meta);

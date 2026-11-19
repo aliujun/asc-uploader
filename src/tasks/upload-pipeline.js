@@ -74,6 +74,9 @@ async function runUploadPipeline(task, hooks) {
 
   console.log(`${c.cyan('[任务]')} 开始执行：文件 ${c.bold(ipa.filename)}（${ipa.sizeBytes} 字节，MD5 ${c.gray(ipa.md5)}），配置「${task.configName}」`);
   hooks.update({ stage: 'PREPARING', message: '正在创建上传任务' });
+  if (task.precheckSummary) {
+    hooks.log(`预检通过：${task.precheckSummary}`);
+  }
   hooks.log('正在通过 App Store Connect API 查询 App 信息');
   const appId = await resolveAppId(client, ipa.bundleId);
   throwIfAborted(signal);

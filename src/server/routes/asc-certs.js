@@ -1,13 +1,53 @@
 'use strict';
 
+const path = require('path');
+const fs = require('fs').promises;
+
 const express = require('express');
 const { createClient } = require('../../core/asc-client');
 const certs = require('../../core/certs');
+const store = require('../../config/store');
+const paths = require('../../config/paths');
 
 const router = express.Router();
 
 /** 一期支持的证书类型集合 */
 const SUPPORTED_CERT_TYPES = new Set(['IOS_DISTRIBUTION', 'IOS_DEVELOPMENT']);
+
+/** 文件名非法字符清洗（Windows 保留字符），与前端命名规则一致 */
+const UNSAFE_FILENAME_RE = /[\\/:*?"<>|]/g;
+
+/**
+ * 生成本地时间戳（yyyyMMdd-HHmmss），用于备份文件名
+ * @returns {string} 形如 20260131-153001 的时间戳
+ */
+function timestamp() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+/**
+ * 将签发合成的 p12 自动备份到数据目录 backups 子目录。
+ * 备份失败只记录日志，不阻塞签发响应（证书已在 Apple 签发，响应必须先送达）。
+ * @param {Buffer} p12Buffer p12 二进制内容
+ * @param {string} configId 配置 ID（用于取配置名拼文件名）
+ * @param {string} certificateType 证书类型枚举（dev/release 后缀）
+ * @returns {Promise<void>}
+ */
+async function backupP12(p12Buffer, configId, certificateType) {
+  try {
+    const config = await store.findById(configId);
+    const configName = ((config && config.name) || '未命名配置').replace(UNSAFE_FILENAME_RE, '');
+    const typeSuffix = certificateType === 'IOS_DEVELOPMENT' ? 'dev' : 'release';
+    const filename = `${configName}_${typeSuffix}_${timestamp()}.p12`;
+    await paths.ensureDirs();
+    await fs.writeFile(path.join(paths.getDir('backups'), filename), p12Buffer);
+    console.log(`[p12 备份] 已存档：${filename}`);
+  } catch (err) {
+    console.log(`[p12 备份] 失败（不影响签发）：${err.message}`);
+  }
+}
 
 /**
  * 统一错误响应
@@ -111,6 +151,9 @@ router.post('/', async (req, res) => {
     });
     return;
   }
+
+  // 自动备份到本地备份目录（失败不影响响应）
+  await backupP12(p12Buffer, configId, certificateType);
 
   res.setHeader('Content-Type', 'application/x-pkcs12');
   res.setHeader('Content-Disposition', 'attachment; filename="certificate-issued.p12"');

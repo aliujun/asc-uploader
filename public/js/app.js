@@ -1,5 +1,6 @@
 /* 注册器：按 TABS 顺序加载组件模块，装配导航与面板，统一启动时序 */
-import { $, enhanceSelect, bindModalBackdropClose } from './common.js';
+import { $, enhanceSelect, bindModalBackdropClose, toast } from './common.js';
+import * as expiryBanner from './expiry-banner.js';
 
 /** 页签注册表：顺序即导航顺序，每个值对应 js/ 下的同名组件文件 */
 const TABS = ['upload', 'configs', 'builds', 'certs', 'asc-certs', 'devices', 'profiles', 'connectivity'];
@@ -88,6 +89,7 @@ async function boot() {
   runInit(() => modules.get('upload').loadTaskHistory(), () => {});
   runInit(() => modules.get('certs').loadCertKeys(), (err) => toast(`私钥列表加载失败：${err.message}`, true));
   runInit(() => modules.get('connectivity').loadConnectivityInfo(), () => {});
+  runInit(() => expiryBanner.loadOverview(), () => {});
 
   // 8. 恢复上次所在的页签（默认停留上传页；迁移期只校验已注册页签，避免无 active 状态）
   const savedTab = localStorage.getItem('asc-active-tab');
