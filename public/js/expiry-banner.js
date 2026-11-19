@@ -1,12 +1,15 @@
-/* 全局到期摘要条 + 总览数据共享层：启动时聚合所有 ASC 配置临期项，
-   顶部显示一行摘要（点击跳转「到期总览」页），30 天内项弹桌面通知（一次会话仅一次） */
-import { $, api, daysLeft } from './common.js';
+/* 全局到期摘要 + 总览数据共享层：启动时聚合所有 ASC 配置临期项，
+   头部右侧显示摘要胶囊（点击跳转「到期总览」页，可手动关闭），30 天内项弹桌面通知（一次会话仅一次） */
+import { $, api, daysLeft, escapeHtml } from './common.js';
 
 /** 紧急阈值（天）：剩余天数不超过该值时计入摘要中的紧急数量并触发桌面通知 */
 const URGENT_DAYS = 30;
 
 /** 模块级通知标记：一次页面会话只弹一次桌面通知 */
 let notified = false;
+
+/** 模块级关闭标记：用户点「×」后本次会话不再显示摘要胶囊 */
+let dismissed = false;
 
 /** 最近一次总览数据缓存（getOverview 复用，避免摘要条与总览页重复请求） */
 let cachedItems = null;
@@ -63,7 +66,8 @@ async function fetchOverview() {
 }
 
 /**
- * 渲染顶部一行摘要：无临期项时隐藏，有则展示汇总文案 + 「查看明细」/「刷新」按钮
+ * 渲染头部右侧摘要胶囊：无临期项或已手动关闭时隐藏。
+ * 胶囊文案为汇总数字（悬停 title 显示明细），点击跳转「到期总览」页；「×」本次会话关闭。
  * @param {Array} items 配置维度的临期数据
  * @returns {void}
  */
@@ -90,25 +94,36 @@ function renderSummary(items) {
       }
     });
   });
-  if (certCount + profileCount + failed === 0) {
+  const total = certCount + profileCount;
+  if (total + failed === 0 || dismissed) {
     banner.classList.add('hidden');
     banner.innerHTML = '';
     return;
   }
-  const urgentText = urgent > 0 ? `，其中 ${urgent} 项 ${URGENT_DAYS} 天内到期或已失效` : '';
+  const tooltipParts = [];
+  if (failed > 0) {
+    tooltipParts.push(`${failed} 个配置读取失败`);
+  }
+  tooltipParts.push(`${certCount} 张证书、${profileCount} 个描述文件临期（剩余 ≤${cachedWindowDays} 天）`);
+  if (urgent > 0) {
+    tooltipParts.push(`${urgent} 项 ${URGENT_DAYS} 天内到期或已失效`);
+  }
+  const label = total > 0 ? `${total} 项临期${urgent > 0 ? ` · ${urgent} 项紧急` : ''}` : `${failed} 个配置读取失败`;
   banner.classList.remove('hidden');
   banner.innerHTML = `
-    <span class="expiry-title">到期提醒</span>
-    <span class="expiry-text">${failed > 0 ? `${failed} 个配置读取失败，` : ''}${certCount} 张证书、${profileCount} 个描述文件临期（剩余 ≤${cachedWindowDays} 天）${urgentText}</span>
-    <button id="btn-expiry-goto" class="small">查看明细</button>
-    <button id="btn-expiry-refresh" class="small">刷新</button>`;
+    <button id="btn-expiry-goto" class="expiry-pill" title="${escapeHtml(tooltipParts.join('，'))}">${escapeHtml(label)}</button>
+    <button id="btn-expiry-close" class="expiry-close" title="本次不再显示">×</button>`;
   $('btn-expiry-goto').addEventListener('click', () => {
     const tab = document.querySelector('.tab[data-tab="expiry-overview"]');
     if (tab) {
       tab.click();
     }
   });
-  $('btn-expiry-refresh').addEventListener('click', () => loadOverview());
+  $('btn-expiry-close').addEventListener('click', () => {
+    dismissed = true;
+    banner.classList.add('hidden');
+    banner.innerHTML = '';
+  });
 }
 
 /**

@@ -53,6 +53,10 @@ body {
 }
 
 .topbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
 	background: var(--card);
 	border-bottom: 1px solid var(--border);
 	padding: 14px 24px;
@@ -490,7 +494,8 @@ button.danger {
 }
 
 /* 到期看板统计条 */
-.stats-bar {
+.stats-bar,
+.stats {
 	display: flex;
 	gap: 12px;
 	margin: 14px 0 12px;
@@ -667,33 +672,54 @@ textarea {
 	resize: none;
 }
 
-/* 全局到期摘要条（#expiry-banner，单行提醒 + 查看明细/刷新按钮） */
+/* 到期摘要（#expiry-banner，置于头部右侧：胶囊按钮 + 关闭） */
 .expiry-banner {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	max-width: 980px;
-	margin: 0 auto 12px;
-	padding: 8px 14px;
-	background: #fff7e6;
-	border: 1px solid var(--warn);
-	border-radius: 8px;
-	font-size: 13px;
+	gap: 4px;
+	flex-shrink: 0;
 }
 .expiry-banner.hidden {
 	display: none !important;
 }
-.expiry-banner .expiry-title {
-	font-weight: 600;
+.expiry-banner .expiry-pill {
+	border: 1px solid var(--warn);
+	background: #fff7e6;
 	color: var(--warn);
+	border-radius: 999px;
+	padding: 6px 14px;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
 	white-space: nowrap;
+	outline: none;
 }
-.expiry-banner .expiry-text {
-	flex: 1;
-	min-width: 0;
+.expiry-banner .expiry-pill:focus {
+	outline: none;
+	box-shadow: none;
+}
+/* 重复 .expiry-pill 提升优先级，压过全局 button:hover 蓝边规则 */
+.expiry-banner .expiry-pill.expiry-pill:hover {
+	background: #ffefce;
+	border-color: var(--warn);
+}
+.expiry-banner .expiry-close {
+	border: none;
+	background: none;
+	color: var(--muted);
+	font-size: 18px;
+	line-height: 1;
+	cursor: pointer;
+	padding: 4px 6px;
+}
+.expiry-banner .expiry-close:hover {
+	color: var(--err);
 }
 /* 到期总览页分组块（expiry-overview.js 渲染） */
 .expiry-group {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
 	margin-bottom: 16px;
 }
 .expiry-group:last-child {
