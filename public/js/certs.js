@@ -1,4 +1,5 @@
 /* 证书工具组件：CSR 生成、p12 导入提取、.cer 合成 p12、本地私钥管理 */
+import { gotoIssue } from './asc-certs.js';
 import {
   $, api, bindEnter, downloadFile, escapeHtml, fmtSize, toast, withLoading,
 } from './common.js';
@@ -21,7 +22,10 @@ export const template = `<section id="tab-certs" class="tab-panel">
                 </div>
                 <div id="csr-result" class="hidden">
                     <textarea id="csr-text" rows="6" readonly></textarea>
-                    <button id="btn-download-csr">下载 .csr 文件</button>
+                    <div class="form-row inline">
+                        <button id="btn-download-csr">下载 .csr 文件</button>
+                        <button id="btn-goto-issue" class="primary">去证书管理页签发 .p12 →</button>
+                    </div>
                 </div>
 
                 <details class="help" style="margin-top:14px">
@@ -42,6 +46,8 @@ export const template = `<section id="tab-certs" class="tab-panel">
 
             <div class="card">
                 <h2>第 2 步：到 Apple 后台换取 .cer 证书</h2>
+                <p class="muted"><b>推荐：</b>配置好 ASC 后可跳过此步，直接用 Apple API 签发并自动下载 .p12
+                    <button id="btn-goto-issue-step2" class="small" style="margin-left:6px">一键签发 →</button></p>
                 <ol class="steps">
                     <li>登录 <a href="https://developer.apple.com/account/resources/certificates/list"
                             target="_blank">Apple Developer - Certificates</a>；</li>
@@ -92,6 +98,9 @@ const certKeysCache = { list: [] };
 /** p12 导入状态 */
 const importP12State = { base64: '' };
 
+/** 最近一次生成的私钥条目 ID（供跳转证书管理页签发时预选） */
+let lastGeneratedKeyId = '';
+
 /**
  * 生成 CSR
  * @returns {Promise<void>}
@@ -116,6 +125,7 @@ async function generateCsr() {
     });
     $('csr-text').value = result.csrPem;
     $('csr-result').classList.remove('hidden');
+    lastGeneratedKeyId = result.keyId;
     toast(remark ? `CSR 已生成（${remark}），私钥已保存在本地` : 'CSR 已生成，私钥已保存在本地');
     loadCertKeys();
   } catch (err) {
@@ -318,6 +328,8 @@ export function init() {
   $('btn-random-cn').onclick = () => randomCommonName();
   $('btn-gen-csr').onclick = () => withLoading($('btn-gen-csr'), '生成中...', generateCsr);
   $('btn-download-csr').onclick = () => downloadFile('certificate signing request.csr', $('csr-text').value);
+  $('btn-goto-issue').onclick = () => gotoIssue(lastGeneratedKeyId);
+  $('btn-goto-issue-step2').onclick = () => gotoIssue();
 
   // 读取证书文件：PEM 文本直接填充；DER 二进制（Apple 下载的 .cer）转 Base64 后填充
   $('cert-cer-file').addEventListener('change', async (event) => {

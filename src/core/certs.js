@@ -189,6 +189,35 @@ async function readPrivateKeyPem(keyId) {
 }
 
 /**
+ * 用已有本地私钥生成 CSR（供 ASC API 签发证书使用），不落盘、不修改索引
+ * @param {string} keyId 私钥条目 ID
+ * @param {string} [commonName] 通用名称，缺省依次回退条目记录值与自动生成值
+ * @returns {Promise<{keyId: string, commonName: string, csrPem: string}>}
+ * @throws {Error} 条目不存在、私钥无法解析或 CSR 自校验失败时抛出
+ */
+async function createCsrFromExistingKey(keyId, commonName = '') {
+  const keys = await loadIndex();
+  const entry = keys.find((k) => k.keyId === keyId);
+  if (!entry) {
+    throw new Error('私钥条目不存在');
+  }
+  const privateKeyPem = await readPrivateKeyPem(keyId);
+  const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+  const cn = (commonName && String(commonName).trim())
+    || entry.commonName
+    || `asc-csr-${keyId.slice(0, 8)}`;
+  const publicKey = forge.pki.setRsaPublicKey(privateKey.n, privateKey.e);
+  const csr = forge.pki.createCertificationRequest();
+  csr.publicKey = publicKey;
+  csr.setSubject([{ name: 'commonName', value: cn }]);
+  csr.sign(privateKey, forge.md.sha256.create());
+  if (!csr.verify()) {
+    throw new Error('CSR 自校验失败');
+  }
+  return { keyId, commonName: cn, csrPem: forge.pki.certificationRequestToPem(csr) };
+}
+
+/**
  * 将本地私钥与 Apple 签发的 .cer 证书合成为 PKCS#12（.p12）
  * 合成前校验私钥与证书公钥配对，不配对直接抛错（避免产出无效 p12）
  * @param {string} keyId 私钥条目 ID
@@ -302,4 +331,13 @@ async function removeKey(keyId) {
   return true;
 }
 
-module.exports = { createKeyPairAndCsr, importPrivateKey, importP12, listKeys, buildP12, describeCer, removeKey };
+module.exports = {
+  createKeyPairAndCsr,
+  createCsrFromExistingKey,
+  importPrivateKey,
+  importP12,
+  listKeys,
+  buildP12,
+  describeCer,
+  removeKey,
+};

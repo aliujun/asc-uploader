@@ -480,8 +480,40 @@ button.danger {
 .badge.ok {
 	background: var(--ok);
 }
+.badge.warn {
+	background: var(--warn);
+}
 .badge.err {
 	background: var(--err);
+}
+
+/* 到期看板统计条 */
+.stats-bar {
+	display: flex;
+	gap: 12px;
+	margin: 14px 0 12px;
+}
+.stat {
+	flex: 1;
+	padding: 10px 14px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--card);
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.stat-num {
+	font-size: 20px;
+	font-weight: 600;
+	line-height: 1.2;
+}
+.stat-label {
+	font-size: 12px;
+	color: var(--muted);
+}
+.stat.warn .stat-num {
+	color: var(--err);
 }
 
 table.builds {

@@ -363,6 +363,40 @@ class AscClient {
   }
 
   /**
+   * 获取证书列表
+   * @param {number} [limit=100] 单页数量上限
+   * @returns {Promise<Object>} ASC certificates 响应
+   */
+  async listCertificates(limit = 100) {
+    return this.request('GET', `/v1/certificates?limit=${limit}`);
+  }
+
+  /**
+   * 用 CSR 向 Apple 签发证书
+   * @param {string} csrContent CSR PEM 文本
+   * @param {string} certificateType 证书类型（如 IOS_DISTRIBUTION / IOS_DEVELOPMENT）
+   * @returns {Promise<Object>} ASC certificates 响应（attributes 含 certificateContent、expirationDate 等）
+   */
+  async createCertificate(csrContent, certificateType) {
+    const body = {
+      data: {
+        type: 'certificates',
+        attributes: { csrContent, certificateType },
+      },
+    };
+    return this.request('POST', '/v1/certificates', { body });
+  }
+
+  /**
+   * 吊销证书
+   * @param {string} certId 证书 ID
+   * @returns {Promise<null>} 成功返回 null（204）
+   */
+  async revokeCertificate(certId) {
+    return this.request('DELETE', `/v1/certificates/${certId}`);
+  }
+
+  /**
    * 校验配置连通性（获取 app 列表）
    * @returns {Promise<{ok: true, appCount: number}|{ok: false, message: string}>}
    */
