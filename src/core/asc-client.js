@@ -397,6 +397,72 @@ class AscClient {
   }
 
   /**
+   * 获取描述文件列表（关联 App ID 与证书用于展示）
+   * @param {number} [limit=200] 单页数量上限
+   * @returns {Promise<Object>} ASC profiles 响应（data + included 关联数据）
+   */
+  async listProfiles(limit = 200) {
+    return this.request('GET', `/v1/profiles?limit=${limit}&include=bundleId,certificates`);
+  }
+
+  /**
+   * 获取 App ID（Bundle ID）列表
+   * @param {number} [limit=200] 单页数量上限
+   * @returns {Promise<Object>} ASC bundleIds 响应
+   */
+  async listBundleIds(limit = 200) {
+    return this.request('GET', `/v1/bundleIds?limit=${limit}`);
+  }
+
+  /**
+   * 创建描述文件
+   * @param {string} bundleIdResourceId App ID 资源 ID
+   * @param {string[]} certificateIds 证书资源 ID 列表
+   * @param {string} name 描述文件名称
+   * @param {string} profileType 描述文件类型（一期仅 IOS_APP_STORE）
+   * @returns {Promise<Object>} ASC profiles 响应
+   */
+  async createProfile(bundleIdResourceId, certificateIds, name, profileType) {
+    const body = {
+      data: {
+        type: 'profiles',
+        attributes: { name, profileType },
+        relationships: {
+          bundleId: { data: { type: 'bundleIds', id: bundleIdResourceId } },
+          certificates: { data: certificateIds.map((id) => ({ type: 'certificates', id })) },
+        },
+      },
+    };
+    return this.request('POST', '/v1/profiles', { body });
+  }
+
+  /**
+   * 删除描述文件
+   * @param {string} profileId 描述文件 ID
+   * @returns {Promise<null>} 成功返回 null（204）
+   */
+  async deleteProfile(profileId) {
+    return this.request('DELETE', `/v1/profiles/${profileId}`);
+  }
+
+  /**
+   * 下载描述文件内容（.mobileprovision 二进制）。
+   * Apple 不提供独立的 profileContent 关系端点，而是通过 GET /v1/profiles/{id}?fields[profiles]=profileContent
+   * 在响应 attributes 中内联返回 base64 编码的 .mobileprovision 内容（官方文档 "Read and download profile information"）
+   * @param {string} profileId 描述文件 ID
+   * @returns {Promise<Buffer>} .mobileprovision 二进制内容
+   * @throws {Error} Apple API 错误或响应缺少内容字段时抛出
+   */
+  async getProfileContent(profileId) {
+    const data = await this.request('GET', `/v1/profiles/${profileId}?fields%5Bprofiles%5D=profileContent`);
+    const content = data && data.data && data.data.attributes && data.data.attributes.profileContent;
+    if (!content) {
+      throw new Error('Apple 未返回描述文件内容（profileContent 为空），无法下载');
+    }
+    return Buffer.from(content, 'base64');
+  }
+
+  /**
    * 校验配置连通性（获取 app 列表）
    * @returns {Promise<{ok: true, appCount: number}|{ok: false, message: string}>}
    */
