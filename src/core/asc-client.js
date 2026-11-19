@@ -1,8 +1,13 @@
 'use strict';
 
+const { exec } = require('child_process');
+const { promisify } = require('util');
+
 const store = require('../config/store');
 const jwt = require('./jwt');
 const c = require('./term');
+
+const execAsync = promisify(exec);
 
 /** App Store Connect API 基础地址（官方文档：https://api.appstoreconnect.apple.com） */
 const API_BASE = 'https://api.appstoreconnect.apple.com';
@@ -16,8 +21,18 @@ const MAX_TRANSIENT_RETRY = 3;
 /** @type {{agent: Object, proxyUrl: string}|null} 代理 Agent 缓存 */
 let proxyAgentCache = null;
 
+/** Windows 系统代理所在的注册表键路径（各代理软件的"系统代理"开关写入的就是这里） */
+const WIN_PROXY_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
+
+/** Windows 系统代理读取结果的缓存有效期（毫秒），避免每次请求都查询注册表 */
+const WIN_PROXY_CACHE_TTL_MS = 10000;
+
+/** @type {{value: string, readAt: number}|null} Windows 系统代理缓存 */
+let winProxyCache = null;
+
 /**
- * 解析当前生效的代理地址（settings.json 优先，其次环境变量）
+ * 解析当前生效的代理地址
+ * 优先级：settings.json > 环境变量 > Windows 系统代理（注册表）
  * @returns {Promise<string>} 代理地址，空字符串表示直连
  */
 async function resolveActiveProxyUrl() {
@@ -25,11 +40,59 @@ async function resolveActiveProxyUrl() {
   return settings.proxyUrl
     || process.env.HTTPS_PROXY
     || process.env.https_proxy
-    || '';
+    || await readWindowsSystemProxy();
 }
 
 /**
- * 获取代理 Agent（按 settings.json 的 proxyUrl），配置变化时重建
+ * 读取 Windows 系统代理设置（注册表 Internet Settings），带短 TTL 缓存。
+ * 非 Windows 平台、未开启系统代理或读取失败时均返回空字符串（按直连处理）。
+ * @returns {Promise<string>} 形如 http://127.0.0.1:7890 的代理地址，空字符串表示无
+ */
+async function readWindowsSystemProxy() {
+  if (process.platform !== 'win32') {
+    return '';
+  }
+  const now = Date.now();
+  if (winProxyCache && now - winProxyCache.readAt < WIN_PROXY_CACHE_TTL_MS) {
+    return winProxyCache.value;
+  }
+  let value = '';
+  try {
+    const enableOutput = (await execAsync(`reg query "${WIN_PROXY_REG_KEY}" /v ProxyEnable`, { timeout: 3000 })).stdout;
+    if (/ProxyEnable\s+REG_DWORD\s+0x1/i.test(enableOutput)) {
+      const valueOutput = (await execAsync(`reg query "${WIN_PROXY_REG_KEY}" /v ProxyServer`, { timeout: 3000 })).stdout;
+      value = parseProxyServer(valueOutput);
+    }
+  } catch {
+    // 注册表读取失败（键不存在等）按无代理处理，不打断请求
+  }
+  winProxyCache = { value, readAt: now };
+  return value;
+}
+
+/**
+ * 从 reg query 输出中解析 ProxyServer 的值
+ * 兼容两种格式：简单格式 "127.0.0.1:7890"、分协议格式 "http=...;https=...;socks=..."
+ * @param {string} output reg query 命令的 stdout
+ * @returns {string} 形如 http://host:port 的代理地址，仅 SOCKS 或解析失败时返回空
+ */
+function parseProxyServer(output) {
+  const match = output.match(/ProxyServer\s+REG_SZ\s+(\S+)/);
+  if (!match) {
+    return '';
+  }
+  const raw = match[1];
+  // 分协议格式：优先取 https，其次 http；仅 socks 时不处理（undici ProxyAgent 只支持 HTTP 代理）
+  if (raw.includes('=')) {
+    const entries = new Map(raw.split(';').map((segment) => segment.split('=')));
+    const target = entries.get('https') || entries.get('http');
+    return target ? `http://${target}` : '';
+  }
+  return `http://${raw}`;
+}
+
+/**
+ * 获取代理 Agent（按 resolveActiveProxyUrl 的结果），代理配置变化时重建
  * @returns {Promise<Object|null>} undici ProxyAgent 或 null（直连）
  */
 async function getProxyAgent() {
