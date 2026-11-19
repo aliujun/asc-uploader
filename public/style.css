@@ -476,6 +476,8 @@ button.danger {
 	border-radius: 10px;
 	font-size: 11px;
 	color: #fff;
+	/* 默认灰底：类型/平台等中性徽章不带 ok/warn/err 修饰类，无背景时会白字隐形 */
+	background: var(--muted);
 }
 .badge.ok {
 	background: var(--ok);

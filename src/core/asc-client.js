@@ -419,10 +419,11 @@ class AscClient {
    * @param {string} bundleIdResourceId App ID 资源 ID
    * @param {string[]} certificateIds 证书资源 ID 列表
    * @param {string} name 描述文件名称
-   * @param {string} profileType 描述文件类型（一期仅 IOS_APP_STORE）
+   * @param {string} profileType 描述文件类型（IOS_APP_STORE / IOS_APP_ADHOC / IOS_APP_DEVELOPMENT）
+   * @param {string[]} [deviceIds=[]] 设备资源 ID 列表（仅 Ad Hoc / 开发类型需要，App Store 类型不携带）
    * @returns {Promise<Object>} ASC profiles 响应
    */
-  async createProfile(bundleIdResourceId, certificateIds, name, profileType) {
+  async createProfile(bundleIdResourceId, certificateIds, name, profileType, deviceIds = []) {
     const body = {
       data: {
         type: 'profiles',
@@ -433,6 +434,9 @@ class AscClient {
         },
       },
     };
+    if (deviceIds.length > 0) {
+      body.data.relationships.devices = { data: deviceIds.map((id) => ({ type: 'devices', id })) };
+    }
     return this.request('POST', '/v1/profiles', { body });
   }
 
@@ -460,6 +464,32 @@ class AscClient {
       throw new Error('Apple 未返回描述文件内容（profileContent 为空），无法下载');
     }
     return Buffer.from(content, 'base64');
+  }
+
+  /**
+   * 获取注册到团队的设备列表
+   * @param {number} [limit=200] 单页数量上限（API 最大 200）
+   * @returns {Promise<Object>} ASC devices 响应
+   */
+  async listDevices(limit = 200) {
+    return this.request('GET', `/v1/devices?limit=${limit}`);
+  }
+
+  /**
+   * 注册新设备（每年新增设备数量受 Apple 配额限制，超限由 Apple 返回错误）
+   * @param {string} name 设备名称
+   * @param {string} platform 平台（IOS / MAC_OS / UNIVERSAL）
+   * @param {string} udid 设备 UDID
+   * @returns {Promise<Object>} ASC devices 响应
+   */
+  async createDevice(name, platform, udid) {
+    const body = {
+      data: {
+        type: 'devices',
+        attributes: { name, platform, udid },
+      },
+    };
+    return this.request('POST', '/v1/devices', { body });
   }
 
   /**

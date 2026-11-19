@@ -1,4 +1,4 @@
-/* 描述文件组件：Profiles 列表、到期看板、下载 .mobileprovision、删除、生成 App Store 描述文件 */
+/* 描述文件组件：Profiles 列表、到期看板、下载 .mobileprovision、删除、生成 App Store / Ad Hoc / 开发描述文件 */
 import {
   $, api, downloadFile, escapeHtml, toast, withLoading,
 } from './common.js';
@@ -6,11 +6,12 @@ import {
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '描述文件';
 
-/** 组件状态：configs 供配置下拉，bundleIds/certs 供生成弹窗，profiles 为当前列表 */
+/** 组件状态：configs 供配置下拉，bundleIds/certs/devices 供生成弹窗，profiles 为当前列表 */
 const state = {
   configs: [],
   bundleIds: [],
   certs: [],
+  devices: [],
   profiles: [],
   configId: '',
   resourcesLoaded: false,
@@ -37,7 +38,7 @@ export const template = `<section id="tab-profiles" class="tab-panel">
                 <ol class="steps">
                     <li>打包 IPA 需要「.p12 证书 + .mobileprovision 描述文件」两件套，证书在<b>证书管理</b>页签发。</li>
                     <li>生成时选择 App ID 与一张或多张证书；同一 App ID + 类型重复生成会被 Apple 以"已存在"拒绝。</li>
-                    <li>一期仅支持生成 <b>App Store</b> 类型；Ad Hoc / 开发类型需先在开发者后台注册设备，暂不支持。</li>
+                    <li>支持生成 <b>App Store</b> / <b>Ad Hoc</b> / <b>开发</b> 三种类型；Ad Hoc 与开发需先在<b>设备管理</b>页注册设备，且分别对应分发证书与开发证书。</li>
                     <li>删除立即生效且不可恢复，但随时可以重新生成同名描述文件。</li>
                 </ol>
             </div>
@@ -58,14 +59,26 @@ export const template = `<section id="tab-profiles" class="tab-panel">
                         </select>
                     </div>
                     <div class="form-row">
+                        <label>描述文件类型<span class="req">*</span></label>
+                        <select id="profile-create-type">
+                            <option value="IOS_APP_STORE">App Store（发布 App Store 版本）</option>
+                            <option value="IOS_APP_ADHOC">Ad Hoc（真机分发）</option>
+                            <option value="IOS_APP_DEVELOPMENT">开发（真机调试）</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
                         <label>包含证书<span class="req">*</span>（可多选）</label>
                         <div id="profile-create-certs" class="checkbox-list"></div>
                     </div>
+                    <div id="profile-create-devices-wrap" class="form-row hidden">
+                        <label>包含设备<span class="req">*</span>（可多选，Ad Hoc / 开发类型必须）</label>
+                        <div id="profile-create-devices" class="checkbox-list"></div>
+                    </div>
                     <div class="form-row">
                         <label>名称</label>
-                        <input id="profile-create-name" placeholder="默认：App ID 名称 + AppStore" autocomplete="off">
+                        <input id="profile-create-name" placeholder="默认：App ID 名称 + 类型后缀" autocomplete="off">
                     </div>
-                    <p class="muted">类型固定为 Apple App Store（发布 App Store 版本）；Ad Hoc / 开发类型需注册设备，暂不支持。</p>
+                    <p class="muted">证书匹配提示：App Store / Ad Hoc 对应分发证书（iOS Distribution），开发对应开发证书（iOS Development）。</p>
                     <p id="profile-create-error" class="error hidden"></p>
                     <div class="form-actions">
                         <button id="btn-profile-create-submit" class="primary">生成并下载 .mobileprovision</button>
@@ -203,6 +216,47 @@ function fillSelect(select, placeholder, items) {
 }
 
 /**
+ * 描述文件类型对应的名称默认后缀
+ * @param {string} profileType 描述文件类型枚举
+ * @returns {string} 后缀文案
+ */
+function nameSuffix(profileType) {
+  if (profileType === 'IOS_APP_ADHOC') {
+    return 'AdHoc';
+  }
+  if (profileType === 'IOS_APP_DEVELOPMENT') {
+    return 'Development';
+  }
+  return 'AppStore';
+}
+
+/**
+ * 按当前所选类型渲染设备多选区（App Store 类型隐藏并清空勾选）
+ * @returns {void}
+ */
+function renderDeviceChecklist() {
+  const wrap = $('profile-create-devices-wrap');
+  const box = $('profile-create-devices');
+  const profileType = $('profile-create-type').value;
+  if (profileType === 'IOS_APP_STORE') {
+    wrap.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  wrap.classList.remove('hidden');
+  if (state.devices.length === 0) {
+    box.innerHTML = '<span class="muted">该账号暂无已注册设备，请先到「设备管理」页注册</span>';
+    return;
+  }
+  box.innerHTML = '';
+  state.devices.forEach((device) => {
+    const label = document.createElement('label');
+    label.innerHTML = `<input type="checkbox" value="${escapeHtml(device.id)}"> ${escapeHtml(device.name || '未命名设备')}（${escapeHtml(device.udid || '-')}）`;
+    box.appendChild(label);
+  });
+}
+
+/**
  * 首次进入时加载 ASC 配置（供下拉选择）
  * @returns {Promise<void>}
  * @throws {Error} 接口请求失败时抛出
@@ -252,7 +306,10 @@ function renderProfileList() {
   profiles.forEach((profile) => {
     const row = document.createElement('div');
     row.className = 'config-item';
-    const certNames = profile.certs.map((c) => c.displayName).filter(Boolean).join('、');
+    const certNames = profile.certs
+      .map((c) => (c.displayName ? `${c.displayName}（${typeLabel(c.certificateType)}）` : ''))
+      .filter(Boolean)
+      .join('、');
     row.innerHTML = `
       <div>
         <span class="name">${escapeHtml(profile.name || '未命名描述文件')}</span>
@@ -314,8 +371,11 @@ async function openCreateModal() {
   }
   fillSelect($('profile-create-config'), '请选择配置', state.configs.map((c) => ({ value: c.id, label: c.name })));
   $('profile-create-config').value = state.configId;
+  $('profile-create-type').value = 'IOS_APP_STORE';
   fillSelect($('profile-create-bundle'), '请选择 App ID', []);
   $('profile-create-certs').innerHTML = '<span class="muted">加载中...</span>';
+  $('profile-create-devices-wrap').classList.add('hidden');
+  $('profile-create-devices').innerHTML = '';
   $('profile-create-name').value = '';
   $('profile-create-error').classList.add('hidden');
   $('profile-create-modal').classList.remove('hidden');
@@ -332,12 +392,14 @@ async function openCreateModal() {
 async function loadModalResources(configId) {
   const certWrap = $('profile-create-certs');
   try {
-    const [bundleData, certData] = await Promise.all([
+    const [bundleData, certData, deviceData] = await Promise.all([
       api(`/api/profiles/bundle-ids?configId=${encodeURIComponent(configId)}`),
       api(`/api/asc-certs?configId=${encodeURIComponent(configId)}`),
+      api(`/api/devices?configId=${encodeURIComponent(configId)}`),
     ]);
     state.bundleIds = bundleData.bundleIds || [];
     state.certs = certData.certs || [];
+    state.devices = deviceData.devices || [];
     fillSelect(
       $('profile-create-bundle'),
       '请选择 App ID',
@@ -345,14 +407,15 @@ async function loadModalResources(configId) {
     );
     if (state.certs.length === 0) {
       certWrap.innerHTML = '<span class="muted">该账号暂无证书，请先到「证书管理」页签发</span>';
-      return;
+    } else {
+      certWrap.innerHTML = '';
+      state.certs.forEach((cert) => {
+        const label = document.createElement('label');
+        label.innerHTML = `<input type="checkbox" value="${escapeHtml(cert.id)}"> ${escapeHtml(cert.displayName || '未命名证书')}（${escapeHtml(typeLabel(cert.certificateType))}，到期 ${escapeHtml(formatDate(cert.expirationDate))}）`;
+        certWrap.appendChild(label);
+      });
     }
-    certWrap.innerHTML = '';
-    state.certs.forEach((cert) => {
-      const label = document.createElement('label');
-      label.innerHTML = `<input type="checkbox" value="${escapeHtml(cert.id)}"> ${escapeHtml(cert.displayName || '未命名证书')}（${escapeHtml(typeLabel(cert.certificateType))}，到期 ${escapeHtml(formatDate(cert.expirationDate))}）`;
-      certWrap.appendChild(label);
-    });
+    renderDeviceChecklist();
   } catch (err) {
     certWrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
   }
@@ -369,12 +432,14 @@ function closeCreateModal() {
 
 /**
  * 校验生成表单，通过后返回请求参数
- * @returns {Object|null} {configId, bundleIdResourceId, certificateIds, name}，校验失败返回 null
+ * @returns {Object|null} {configId, bundleIdResourceId, certificateIds, name, profileType, deviceIds}，校验失败返回 null
  */
 function validateCreateForm() {
   const configId = $('profile-create-config').value;
+  const profileType = $('profile-create-type').value;
   const bundleIdResourceId = $('profile-create-bundle').value;
   const certificateIds = Array.from($('profile-create-certs').querySelectorAll('input:checked')).map((i) => i.value);
+  const deviceIds = Array.from($('profile-create-devices').querySelectorAll('input:checked')).map((i) => i.value);
   const name = $('profile-create-name').value.trim();
   if (!configId) {
     toast('请选择 ASC 配置', true);
@@ -388,10 +453,21 @@ function validateCreateForm() {
     toast('请至少勾选一个证书', true);
     return null;
   }
-  // 名称默认：App ID 名称 + AppStore
+  if (profileType !== 'IOS_APP_STORE' && deviceIds.length === 0) {
+    toast('Ad Hoc / 开发描述文件至少需要选择一台设备', true);
+    return null;
+  }
+  // 名称默认：App ID 名称 + 类型后缀
   const bundleEntry = state.bundleIds.find((b) => b.id === bundleIdResourceId);
-  const defaultName = bundleEntry ? `${bundleEntry.name || bundleEntry.identifier} AppStore` : 'AppStore Profile';
-  return { configId, bundleIdResourceId, certificateIds, name: name || defaultName };
+  const defaultName = bundleEntry ? `${bundleEntry.name || bundleEntry.identifier} ${nameSuffix(profileType)}` : `${nameSuffix(profileType)} Profile`;
+  return {
+    configId,
+    bundleIdResourceId,
+    certificateIds,
+    name: name || defaultName,
+    profileType,
+    deviceIds: profileType === 'IOS_APP_STORE' ? [] : deviceIds,
+  };
 }
 
 /**
@@ -518,6 +594,7 @@ export function init() {
     $('profile-create-certs').innerHTML = '<span class="muted">加载中...</span>';
     await loadModalResources(configId);
   });
+  $('profile-create-type').addEventListener('change', renderDeviceChecklist);
   $('btn-profile-create-submit').addEventListener('click', () => {
     submitCreate();
   });

@@ -116,18 +116,20 @@ function expiryBadgeHtml(cert) {
 }
 
 /**
- * 证书类型的中文展示文案
+ * 证书类型的展示文案（与 Apple Developer 官网 Certificates 页 TYPE 列一致）
  * @param {string} type ASC 证书类型枚举
  * @returns {string} 展示文案
  */
 function typeLabel(type) {
-  if (type === 'IOS_DISTRIBUTION' || type === 'DISTRIBUTION') {
-    return '分发';
-  }
-  if (type === 'IOS_DEVELOPMENT' || type === 'DEVELOPMENT') {
-    return '开发';
-  }
-  return type || '未知类型';
+  const map = {
+    IOS_DISTRIBUTION: 'iOS Distribution',
+    DISTRIBUTION: 'Distribution',
+    IOS_DEVELOPMENT: 'iOS Development',
+    DEVELOPMENT: 'Development',
+    APPLE_DEVELOPMENT: 'Apple Development',
+    APPLE_DISTRIBUTION: 'Apple Distribution',
+  };
+  return map[type] || type || '未知类型';
 }
 
 /**

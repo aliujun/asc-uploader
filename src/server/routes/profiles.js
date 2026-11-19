@@ -88,12 +88,18 @@ router.get('/bundle-ids', async (req, res) => {
   }
 });
 
+/** 支持创建的描述文件类型白名单（企业类型 IOS_APP_INHOUSE 需企业账号，不支持） */
+const SUPPORTED_PROFILE_TYPES = new Set(['IOS_APP_STORE', 'IOS_APP_ADHOC', 'IOS_APP_DEVELOPMENT']);
+
+/** 需要 devices 关系的描述文件类型（Apple 要求这两类 profile 必须携带设备） */
+const DEVICE_REQUIRED_TYPES = new Set(['IOS_APP_ADHOC', 'IOS_APP_DEVELOPMENT']);
+
 /**
- * POST /api/profiles 创建描述文件（一期仅 App Store 类型）
+ * POST /api/profiles 创建描述文件（App Store / Ad Hoc / 开发类型）
  * @returns {void}
  */
 router.post('/', async (req, res) => {
-  const { configId, bundleIdResourceId, certificateIds, name } = req.body || {};
+  const { configId, bundleIdResourceId, certificateIds, name, profileType, deviceIds } = req.body || {};
   if (!configId) {
     sendError(res, 400, '缺少 ASC 配置');
     return;
@@ -106,19 +112,29 @@ router.post('/', async (req, res) => {
     sendError(res, 400, '至少选择一个证书');
     return;
   }
+  if (!SUPPORTED_PROFILE_TYPES.has(profileType)) {
+    sendError(res, 400, '描述文件类型仅支持 IOS_APP_STORE / IOS_APP_ADHOC / IOS_APP_DEVELOPMENT');
+    return;
+  }
+  const needDevices = DEVICE_REQUIRED_TYPES.has(profileType);
+  const devices = Array.isArray(deviceIds) ? deviceIds : [];
+  if (needDevices && devices.length === 0) {
+    sendError(res, 400, 'Ad Hoc / 开发描述文件至少需要选择一台设备');
+    return;
+  }
   const profileName = (name || '').trim();
   if (!profileName) {
     sendError(res, 400, '描述文件名称不能为空');
     return;
   }
   try {
-    const data = await createClient(configId).createProfile(bundleIdResourceId, certificateIds, profileName, 'IOS_APP_STORE');
+    const data = await createClient(configId).createProfile(bundleIdResourceId, certificateIds, profileName, profileType, devices);
     const attributes = (data.data && data.data.attributes) || {};
     res.json({
       profile: {
         id: (data.data && data.data.id) || '',
         name: attributes.name || profileName,
-        profileType: attributes.profileType || 'IOS_APP_STORE',
+        profileType: attributes.profileType || profileType,
         expirationDate: attributes.expirationDate || '',
       },
     });

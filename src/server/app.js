@@ -21,6 +21,7 @@ function createApp() {
   app.use('/api/certs', require('./routes/certs'));
   app.use('/api/asc-certs', require('./routes/asc-certs'));
   app.use('/api/profiles', require('./routes/profiles'));
+  app.use('/api/devices', require('./routes/devices'));
   app.use('/api/connectivity', require('./routes/connectivity'));
 
   // JSON 解析错误兜底
