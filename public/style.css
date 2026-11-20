@@ -703,6 +703,85 @@ textarea {
 	background: #ffefce;
 	border-color: var(--warn);
 }
+
+/* 头部新版本提示胶囊（绿色调，与到期提醒胶囊并排） */
+.version-banner {
+	display: flex;
+	align-items: center;
+	flex-shrink: 0;
+}
+.version-banner.hidden {
+	display: none !important;
+}
+.version-banner .version-pill {
+	border: 1px solid var(--ok, #16a34a);
+	background: #ecfdf3;
+	color: var(--ok, #16a34a);
+	border-radius: 999px;
+	padding: 6px 14px;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	white-space: nowrap;
+	outline: none;
+}
+.version-banner .version-pill:focus {
+	outline: none;
+	box-shadow: none;
+}
+/* 重复 .version-pill 提升优先级，压过全局 button:hover 蓝边规则 */
+.version-banner .version-pill.version-pill:hover {
+	background: #d9f7e5;
+	border-color: var(--ok, #16a34a);
+}
+
+/* 版本更新弹窗内的指引内容 */
+.version-mode-badge {
+	display: inline-block;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 1px 8px;
+	font-size: 12px;
+	color: var(--muted);
+	margin-left: 6px;
+	vertical-align: middle;
+}
+.version-cmd-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 4px 0 10px;
+}
+.version-cmd {
+	flex: 1;
+	background: var(--bg, #f5f7fa);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 8px 10px;
+	font-family: Consolas, Monaco, monospace;
+	font-size: 13px;
+	word-break: break-all;
+	user-select: all;
+}
+.version-notes-title {
+	margin: 12px 0 6px;
+	font-size: 13px;
+	font-weight: 600;
+}
+.version-notes {
+	margin: 0;
+	max-height: 180px;
+	overflow-y: auto;
+	background: var(--bg, #f5f7fa);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 8px 10px;
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-family: inherit;
+}
 .expiry-banner .expiry-close {
 	border: none;
 	background: none;

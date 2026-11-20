@@ -13,10 +13,12 @@
     <header class="topbar">
         <div class="topbar-main">
             <h1>App Store应用上架助手</h1>
-            <span class="subtitle">App Store Connect 上传 · TestFlight 分发 · 证书工具</span>
+            <span class="subtitle">App Store Connect 上传 · TestFlight 分发 · 证书与描述文件管理 · 到期提醒</span>
         </div>
         <!-- 全局到期摘要：由 js/expiry-banner.js 填充，无临期项时隐藏，可手动关闭 -->
         <div id="expiry-banner" class="expiry-banner hidden"></div>
+        <!-- 新版本提示胶囊：由 js/version-check.js 填充，检测到新版本时显示 -->
+        <div id="version-banner" class="version-banner hidden"></div>
     </header>
 
     <!-- 导航与面板容器均由 js/app.js 按组件注册表动态装配 -->

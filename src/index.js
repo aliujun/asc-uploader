@@ -126,6 +126,8 @@ async function main() {
 		}
 		const url = `http://localhost:${port}`;
 		printBanner(url);
+		// 启动时检测新版本并输出控制台警告（后台执行，不阻塞启动）
+		require('./server/routes/version').warnIfOutdated().catch(() => {});
 		if (!opts.noOpen) {
 			openBrowser(url);
 		}
