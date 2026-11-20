@@ -93,7 +93,7 @@ function ensureModal() {
       <div class="modal-box">
         <h3>发现新版本</h3>
         <div id="version-modal-body"></div>
-        <div class="modal-actions">
+        <div class="form-actions">
           <button id="btn-version-detail" class="btn-ghost">更新详情</button>
           <button id="btn-version-skip" class="btn-ghost">此版本不再提示</button>
           <button id="btn-version-close" class="btn">知道了</button>
