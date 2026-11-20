@@ -275,6 +275,16 @@ class AscClient {
   }
 
   /**
+   * 获取指定 app 的 App Store 版本列表（含审核状态 appStoreState）
+   * @param {string} appId app ID
+   * @param {number} [limit=50] 单页数量上限
+   * @returns {Promise<Object>} ASC appStoreVersions 响应
+   */
+  async listAppStoreVersions(appId, limit = 50) {
+    return this.request('GET', `/v1/apps/${appId}/appStoreVersions?limit=${limit}`);
+  }
+
+  /**
    * 获取 beta 测试组列表
    * @returns {Promise<Object>} ASC betaGroups 响应
    */

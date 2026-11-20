@@ -24,6 +24,7 @@ function createApp() {
   app.use('/api/devices', require('./routes/devices'));
   app.use('/api/connectivity', require('./routes/connectivity'));
   app.use('/api/expiry-overview', require('./routes/expiry-overview'));
+  app.use('/api/app-versions', require('./routes/app-versions'));
   app.use('/api/version', require('./routes/version').router);
 
   // JSON 解析错误兜底
