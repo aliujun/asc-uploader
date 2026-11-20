@@ -126,9 +126,7 @@ function fillModal(result) {
        </div>`
     : '';
   const modeLine = result.runMode === 'exe'
-    ? `<a href="${escapeHtml(result.downloadUrl || result.releaseUrl)}" target="_blank" rel="noopener">
-         <button id="btn-version-download" class="btn">前往下载 ${escapeHtml(result.assetName || '新版本 exe')}</button>
-       </a>
+    ? `<button id="btn-version-download" class="btn">前往下载 ${escapeHtml(result.assetName || '新版本 exe')}</button>
        ${result.assetSize ? `<span class="muted">（${(result.assetSize / 1024 / 1024).toFixed(1)} MB）</span>` : ''}`
     : commandBlock;
   const notes = result.notes
@@ -145,6 +143,12 @@ function fillModal(result) {
     <p class="muted">${escapeHtml(result.hint || '')}</p>
     ${modeLine}
     ${notes}`;
+  const downloadBtn = $('btn-version-download');
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', () => {
+      window.open(result.downloadUrl || result.releaseUrl, '_blank', 'noopener');
+    });
+  }
   const copyBtn = $('btn-version-copy');
   if (copyBtn) {
     copyBtn.addEventListener('click', async () => {

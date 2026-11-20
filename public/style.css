@@ -309,8 +309,9 @@ button {
 	cursor: pointer;
 	font-size: 13px;
 }
-button:hover:not(:disabled):not(.tab) {
-	border-color: var(--primary);
+/* 按钮悬停不改变边框（避免蓝边/杂色边框突兀），反馈统一走底色变化 */
+button.danger:hover:not(:disabled) {
+	background: #fef2f2;
 }
 /* Tab 悬停不用蓝色边框，轻微加深底色作为反馈 */
 .tab:hover:not(.active) {
@@ -698,10 +699,9 @@ textarea {
 	outline: none;
 	box-shadow: none;
 }
-/* 重复 .expiry-pill 提升优先级，压过全局 button:hover 蓝边规则 */
-.expiry-banner .expiry-pill.expiry-pill:hover {
+/* 胶囊悬停只变底色，边框不变 */
+.expiry-banner .expiry-pill:hover {
 	background: #ffefce;
-	border-color: var(--warn);
 }
 
 /* 头部右侧提示胶囊组：到期摘要与新版本胶囊并排，二者至少一个可见时整体靠右 */
@@ -737,10 +737,9 @@ textarea {
 	outline: none;
 	box-shadow: none;
 }
-/* 重复 .version-pill 提升优先级，压过全局 button:hover 蓝边规则 */
-.version-banner .version-pill.version-pill:hover {
+/* 胶囊悬停只变底色，边框不变 */
+.version-banner .version-pill:hover {
 	background: #d9f7e5;
-	border-color: var(--ok, #16a34a);
 }
 
 /* 版本更新弹窗内的指引内容 */

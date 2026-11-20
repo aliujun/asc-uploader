@@ -1,6 +1,6 @@
 # App Store应用上架助手
 
-Windows 下的 App Store Connect（ASC）IPA 上传工具：本地 Web 界面操作，支持 TestFlight 分发、Build 状态查询、多 App 配置管理与 iOS 证书（CSR/p12）工具，可一键打包为免安装单文件 exe。
+Windows 下的 App Store Connect（ASC）IPA 上传工具：本地 Web 界面操作，支持 TestFlight 分发、Build 与版本审核状态查询、描述文件 / 设备管理、iOS 证书（CSR/p12）工具与证书到期提醒，可一键打包为免安装单文件 exe。
 
 - 基于 [App Store Connect API 4.1+](https://developer.apple.com/documentation/appstoreconnectapi) 全新的 `buildUploads` 分块上传接口，不依赖 Xcode、Transporter 或 iTMSTransporter
 - 原生 Node.js 实现，无原生编译依赖，`npm install` 即用
@@ -12,6 +12,7 @@ Windows 下的 App Store Connect（ASC）IPA 上传工具：本地 Web 界面操
 - 实时进度、逐条任务日志（终端同步输出彩色日志，便于排查）
 - 排队 / 准备 / 上传阶段可随时中断；提交校验后自动等待 Apple 校验与 build 处理结果
 - 历史任务列表：失败 / 已取消任务可一键重试（复用本地 IPA 缓存）
+- 上传前自动预检签名描述文件：已过期 / 开发签名包 / bundleId 与签名 App ID 不匹配直接拦截，签名信息（名称、类型、到期）在上传页可见
 
 ### TestFlight 分发
 - 上传完成后自动加入指定测试组
@@ -19,6 +20,22 @@ Windows 下的 App Store Connect（ASC）IPA 上传工具：本地 Web 界面操
 
 ### Build 状态查询
 - 按 App 查看 build 列表（版本、处理状态、上传时间），处理状态中文化展示
+
+### 版本审核状态
+- 按 App 查看 App Store 版本列表（版本号、审核状态、创建 / 发布时间），官方全部审核状态中文化
+- 统计卡片汇总：审核被拒 / 审核中 / 等待审核 / 待开发者发布 / 已发布
+
+### 描述文件与设备管理
+- 描述文件列表（类型 / 状态 / 到期 / 关联证书中文化展示），在线签发 App Store / Ad Hoc / 开发描述文件并下载
+- 设备列表查询（名称、UDID、平台、状态）
+
+### 到期提醒
+- 启动时自动聚合全部配置的证书与描述文件临期项（剩余 ≤60 天或非 ACTIVE），顶部胶囊提示，可展开统计总览
+- 剩余 ≤30 天时弹出浏览器桌面通知（每次会话一次，可手动刷新）
+
+### 版本更新检测
+- 启动时检测 GitHub Releases 新版本，页面胶囊提示 + 终端警告输出
+- 按运行方式（exe / npm / 源码）自动给出对应的下载或升级命令，可一键复制
 
 ### 多 App 配置管理
 - 多套 API 密钥（.p8）配置独立管理，弹框编辑、一键验证连通性
@@ -28,6 +45,7 @@ Windows 下的 App Store Connect（ASC）IPA 上传工具：本地 Web 界面操
 - 生成 RSA 私钥与 CSR（通用名称随机生成，所属项目必填）
 - 合成 .p12：私钥与 .cer 自动配对校验，采用**传统 PBE-SHA1-3DES 格式**（HBuilderX 云打包兼容，openssl v3 的现代格式会被 HBuilderX 拒绝）
 - 导入已有 .p12 提取私钥（不填密码默认 `123456`），支持开发/发布双证书复用同一私钥
+- 合成 .p12 后自动备份到数据目录 `backups` 文件夹（按 `配置名_类型_时间戳` 命名），误删不慌
 
 ### 网络与调试
 - 代理设置（全局生效，含分块上传），常见代理端口一键自动检测（Clash / v2rayN / Fiddler 等）
@@ -121,7 +139,7 @@ npm run pkg  # 打包 Windows 单文件 exe（dist/AppStore应用上架助手.ex
 2. `npm publish` 发布到 npm（npx 通道生效）
 3. `npm run pkg` 打包 exe，随 tag 上传到 GitHub Releases（exe 通道）
 
-技术栈：Node.js 原生 `fetch` / `undici`（代理与分块上传）、`node-forge`（证书）、`express`（本地服务）、`yauzl`（IPA 解析）。前端为原生 HTML/CSS/JS 单页实现，无构建步骤。
+技术栈：Node.js 原生 `fetch` / `undici`（代理与分块上传）、`node-forge`（证书与描述文件解析）、`express`（本地服务）、`yauzl`（IPA 解析）、`bplist-parser`（签名信息解析）。前端为原生 HTML/CSS/JS 单页实现，无构建步骤。
 
 ## 许可证
 

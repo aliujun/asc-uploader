@@ -162,7 +162,7 @@ function renderCertList() {
       <div class="actions">
         <button class="small danger">吊销</button>
       </div>`;
-    row.querySelector('.danger').onclick = () => revokeCert(cert);
+    row.querySelector('.danger').onclick = (e) => revokeCert(cert, e.currentTarget);
     wrap.appendChild(row);
   });
 }
@@ -301,11 +301,12 @@ async function submitIssue() {
 }
 
 /**
- * 吊销证书（二次确认后调用 ASC API，成功后刷新列表）
+ * 吊销证书（二次确认后调用 ASC API，成功后刷新列表；请求期间按钮进入加载态防重复点击）
  * @param {Object} cert 证书条目
+ * @param {HTMLButtonElement} button 触发吊销的按钮元素
  * @returns {Promise<void>}
  */
-async function revokeCert(cert) {
+async function revokeCert(cert, button) {
   const label = cert.displayName || cert.serialNumber || cert.id;
   const goOn = confirm(`确定吊销证书「${label}」（序列号 ${cert.serialNumber || '-'}）？\n`
     + '吊销后立即失效且不可恢复，使用该证书签名的描述文件将随之失效。');
@@ -313,11 +314,13 @@ async function revokeCert(cert) {
     return;
   }
   try {
-    await api(`/api/asc-certs/${encodeURIComponent(cert.id)}?configId=${encodeURIComponent(state.configId)}`, {
-      method: 'DELETE',
+    await withLoading(button, '吊销中...', async () => {
+      await api(`/api/asc-certs/${encodeURIComponent(cert.id)}?configId=${encodeURIComponent(state.configId)}`, {
+        method: 'DELETE',
+      });
+      toast('证书已吊销');
+      loadCertList();
     });
-    toast('证书已吊销');
-    loadCertList();
   } catch (err) {
     toast(err.message, true);
   }
