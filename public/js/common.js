@@ -276,13 +276,23 @@ export function typeLabel(type) {
     IOS_APP_ADHOC: 'Ad Hoc',
     IOS_APP_DEVELOPMENT: '开发',
     IOS_APP_INHOUSE: '企业',
-    // 证书类型（certificateType），文案与 Apple Developer 官网 TYPE 列一致
+    // 证书类型（certificateType）。文案对齐官网证书列表页 TYPE 列（API 枚举直译，
+    // 注意官网创建证书页用的是合并后的 Apple Development / Apple Distribution 展示名，两处本身不一致）
     IOS_DISTRIBUTION: 'iOS Distribution',
-    DISTRIBUTION: 'Distribution',
     IOS_DEVELOPMENT: 'iOS Development',
+    APPLE_DISTRIBUTION: 'Distribution',
+    APPLE_DEVELOPMENT: 'Development',
+    DISTRIBUTION: 'Distribution',
     DEVELOPMENT: 'Development',
-    APPLE_DEVELOPMENT: 'Apple Development',
-    APPLE_DISTRIBUTION: 'Apple Distribution',
+    MAC_APP_DEVELOPMENT: 'Mac App Development',
+    MAC_APP_DISTRIBUTION: 'Mac App Distribution',
+    // 企业开发者账号（InHouse）证书类型
+    APPLE_DEVELOPMENT_INHOUSE: 'Development (InHouse)',
+    APPLE_DISTRIBUTION_INHOUSE: 'Distribution (InHouse)',
+    IOS_DEVELOPMENT_INHOUSE: 'iOS Development (InHouse)',
+    IOS_DISTRIBUTION_INHOUSE: 'iOS Distribution (InHouse)',
+    MAC_DEVELOPMENT_INHOUSE: 'Mac Development (InHouse)',
+    MAC_DISTRIBUTION_INHOUSE: 'Mac Distribution (InHouse)',
   };
   return map[type] || type || '未知类型';
 }

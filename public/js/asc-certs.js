@@ -59,8 +59,8 @@ export const template = `<section id="tab-asc-certs" class="tab-panel">
                     <div class="form-row">
                         <label>证书类型<span class="req">*</span></label>
                         <select id="asc-issue-type">
-                            <option value="IOS_DISTRIBUTION">Apple Distribution（发布 App Store / Ad Hoc）</option>
-                            <option value="IOS_DEVELOPMENT">Apple Development（真机调试）</option>
+                            <option value="APPLE_DISTRIBUTION">Apple Distribution（发布 App Store / Ad Hoc）</option>
+                            <option value="APPLE_DEVELOPMENT">Apple Development（真机调试）</option>
                         </select>
                     </div>
                     <div class="form-row">
@@ -285,7 +285,7 @@ async function submitIssue() {
       }
       const keyEntry = state.keys.find((k) => k.keyId === form.keyId);
       const safeRemark = ((keyEntry && keyEntry.remark) || '').replace(/[\\/:*?"<>|]/g, '');
-      const typeLabelPart = form.certificateType === 'IOS_DEVELOPMENT' ? 'dev' : 'release';
+      const typeLabelPart = /_DEVELOPMENT$/.test(form.certificateType) ? 'dev' : 'release';
       const nameParts = [safeRemark, typeLabelPart].filter(Boolean).join('-');
       await downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate-issued.p12', blob);
       closeIssueModal();

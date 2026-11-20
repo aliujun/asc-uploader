@@ -11,8 +11,14 @@ const paths = require('../../config/paths');
 
 const router = express.Router();
 
-/** 一期支持的证书类型集合 */
-const SUPPORTED_CERT_TYPES = new Set(['IOS_DISTRIBUTION', 'IOS_DEVELOPMENT']);
+/** 支持的证书类型集合（官网主推的全平台新枚举） */
+const SUPPORTED_CERT_TYPES = new Set(['APPLE_DISTRIBUTION', 'APPLE_DEVELOPMENT']);
+
+/** 新枚举签发失败时的旧枚举兜底映射（部分账号可能仅支持合并前的类型） */
+const FALLBACK_CERT_TYPES = {
+  APPLE_DISTRIBUTION: 'IOS_DISTRIBUTION',
+  APPLE_DEVELOPMENT: 'IOS_DEVELOPMENT',
+};
 
 /** 文件名非法字符清洗（Windows 保留字符），与前端命名规则一致 */
 const UNSAFE_FILENAME_RE = /[\\/:*?"<>|]/g;
@@ -39,7 +45,7 @@ async function backupP12(p12Buffer, configId, certificateType) {
   try {
     const config = await store.findById(configId);
     const configName = ((config && config.name) || '未命名配置').replace(UNSAFE_FILENAME_RE, '');
-    const typeSuffix = certificateType === 'IOS_DEVELOPMENT' ? 'dev' : 'release';
+    const typeSuffix = /_DEVELOPMENT$/.test(certificateType || '') ? 'dev' : 'release';
     const filename = `${configName}_${typeSuffix}_${timestamp()}.p12`;
     await paths.ensureDirs();
     await fs.writeFile(path.join(paths.getDir('backups'), filename), p12Buffer);
@@ -103,7 +109,7 @@ router.post('/', async (req, res) => {
     return;
   }
   if (!SUPPORTED_CERT_TYPES.has(certificateType)) {
-    sendError(res, 400, '证书类型仅支持 IOS_DISTRIBUTION / IOS_DEVELOPMENT');
+    sendError(res, 400, '证书类型仅支持 APPLE_DISTRIBUTION / APPLE_DEVELOPMENT');
     return;
   }
   const p12Password = password || '123456';
@@ -123,7 +129,17 @@ router.post('/', async (req, res) => {
 
   let issued;
   try {
-    issued = await createClient(configId).createCertificate(csrPem, certificateType);
+    const client = createClient(configId);
+    try {
+      issued = await client.createCertificate(csrPem, certificateType);
+    } catch (err) {
+      const fallback = FALLBACK_CERT_TYPES[certificateType];
+      if (!fallback) {
+        throw err;
+      }
+      console.warn(`[证书] ${certificateType} 签发失败，尝试回退 ${fallback}：${err.message}`);
+      issued = await client.createCertificate(csrPem, fallback);
+    }
   } catch (err) {
     sendError(res, 502, err.message);
     return;
