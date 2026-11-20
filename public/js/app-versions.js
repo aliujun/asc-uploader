@@ -49,7 +49,7 @@ export const template = `<section id="tab-app-versions" class="tab-panel">
     <div class="card">
         <h2>App Store 版本与审核状态</h2>
         <p class="muted">查看所选 App 各版本的审核进展（等待审核 / 审核中 / 通过 / 被拒 / 已发布），无需登录 App Store Connect 网页。数据仅在打开本页或点击刷新时拉取。</p>
-        <div class="form-row">
+        <div class="form-row inline">
             <select id="av-config"><option value="">选择 ASC 配置</option></select>
             <select id="av-app"><option value="">选择 App</option></select>
             <button id="btn-av-refresh">刷新</button>
