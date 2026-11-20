@@ -1,6 +1,7 @@
 /* 版本更新检测：启动时调 /api/version/check，发现新版本在头部显示绿色胶囊；
    点击弹窗按运行方式（exe / npm / git）给出对应的更新指引，可跳过当前版本提示 */
 import { $, api, escapeHtml, toast } from './common.js';
+import { renderMarkdown } from './md-render.js';
 
 /** 最近一次检测结果缓存（弹窗渲染复用） */
 let lastResult = null;
@@ -149,7 +150,7 @@ function fillModal(result) {
     : commandBlock;
   const notes = result.notes
     ? `<div class="version-notes-title">更新日志</div>
-       <pre class="version-notes">${escapeHtml(result.notes)}</pre>`
+       <div class="version-notes md-render">${renderMarkdown(result.notes)}</div>`
     : '';
   body.innerHTML = `
     <p>
