@@ -280,15 +280,13 @@ export function typeLabel(type) {
     // 注意官网创建证书页用的是合并后的 Apple Development / Apple Distribution 展示名，两处本身不一致）
     IOS_DISTRIBUTION: 'iOS Distribution',
     IOS_DEVELOPMENT: 'iOS Development',
-    APPLE_DISTRIBUTION: 'Distribution',
-    APPLE_DEVELOPMENT: 'Development',
     DISTRIBUTION: 'Distribution',
     DEVELOPMENT: 'Development',
     MAC_APP_DEVELOPMENT: 'Mac App Development',
     MAC_APP_DISTRIBUTION: 'Mac App Distribution',
     // 企业开发者账号（InHouse）证书类型
-    APPLE_DEVELOPMENT_INHOUSE: 'Development (InHouse)',
-    APPLE_DISTRIBUTION_INHOUSE: 'Distribution (InHouse)',
+    DEVELOPMENT_INHOUSE: 'Development (InHouse)',
+    DISTRIBUTION_INHOUSE: 'Distribution (InHouse)',
     IOS_DEVELOPMENT_INHOUSE: 'iOS Development (InHouse)',
     IOS_DISTRIBUTION_INHOUSE: 'iOS Distribution (InHouse)',
     MAC_DEVELOPMENT_INHOUSE: 'Mac Development (InHouse)',

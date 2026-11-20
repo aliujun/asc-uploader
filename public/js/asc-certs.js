@@ -59,8 +59,8 @@ export const template = `<section id="tab-asc-certs" class="tab-panel">
                     <div class="form-row">
                         <label>证书类型<span class="req">*</span></label>
                         <select id="asc-issue-type">
-                            <option value="APPLE_DISTRIBUTION">Apple Distribution（发布 App Store / Ad Hoc）</option>
-                            <option value="APPLE_DEVELOPMENT">Apple Development（真机调试）</option>
+                            <option value="DISTRIBUTION">Apple Distribution（发布 App Store / Ad Hoc）</option>
+                            <option value="DEVELOPMENT">Apple Development（真机调试）</option>
                         </select>
                     </div>
                     <div class="form-row">

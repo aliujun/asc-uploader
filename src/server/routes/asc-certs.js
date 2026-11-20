@@ -11,13 +11,13 @@ const paths = require('../../config/paths');
 
 const router = express.Router();
 
-/** 支持的证书类型集合（官网主推的全平台新枚举） */
-const SUPPORTED_CERT_TYPES = new Set(['APPLE_DISTRIBUTION', 'APPLE_DEVELOPMENT']);
+/** 支持的证书类型集合（官网创建页「Apple Distribution / Apple Development」对应的 API 枚举） */
+const SUPPORTED_CERT_TYPES = new Set(['DISTRIBUTION', 'DEVELOPMENT']);
 
-/** 新枚举签发失败时的旧枚举兜底映射（部分账号可能仅支持合并前的类型） */
+/** 新枚举签发失败时的旧枚举兜底映射（个别账号可能仅支持合并前的类型） */
 const FALLBACK_CERT_TYPES = {
-  APPLE_DISTRIBUTION: 'IOS_DISTRIBUTION',
-  APPLE_DEVELOPMENT: 'IOS_DEVELOPMENT',
+  DISTRIBUTION: 'IOS_DISTRIBUTION',
+  DEVELOPMENT: 'IOS_DEVELOPMENT',
 };
 
 /** 文件名非法字符清洗（Windows 保留字符），与前端命名规则一致 */
@@ -109,7 +109,7 @@ router.post('/', async (req, res) => {
     return;
   }
   if (!SUPPORTED_CERT_TYPES.has(certificateType)) {
-    sendError(res, 400, '证书类型仅支持 APPLE_DISTRIBUTION / APPLE_DEVELOPMENT');
+    sendError(res, 400, '证书类型仅支持 DISTRIBUTION / DEVELOPMENT');
     return;
   }
   const p12Password = password || '123456';
