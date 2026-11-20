@@ -35,13 +35,13 @@ export async function refresh(force) {
 }
 
 /**
- * 渲染头部右侧新版本胶囊：无更新或用户已跳过该版本时隐藏
+ * 渲染头部右侧新版本胶囊：无更新时隐藏，有更新时一直显示（不做「不再提示」跳过）
  * @param {Object} result 版本检测结果
  * @returns {void}
  */
 function renderPill(result) {
   const banner = $('version-banner');
-  if (!result.hasUpdate || isSkipped(result.latest)) {
+  if (!result.hasUpdate) {
     banner.classList.add('hidden');
     banner.innerHTML = '';
     return;
@@ -52,15 +52,6 @@ function renderPill(result) {
       新版本 v${escapeHtml(result.latest)} 可用
     </button>`;
   $('btn-version-pill').addEventListener('click', openModal);
-}
-
-/**
- * 判断该最新版本是否被用户跳过
- * @param {string} latest 最新版本号
- * @returns {boolean} 是否跳过
- */
-function isSkipped(latest) {
-  return localStorage.getItem('version.skipped') === latest;
 }
 
 /**
@@ -96,7 +87,6 @@ function ensureModal() {
         <div id="version-modal-body"></div>
         <div class="form-actions">
           <button id="btn-version-detail" class="btn-ghost">更新详情</button>
-          <button id="btn-version-skip" class="btn-ghost">此版本不再提示</button>
           <button id="btn-version-close" class="btn">知道了</button>
         </div>
       </div>
@@ -111,13 +101,6 @@ function ensureModal() {
     if (lastResult && lastResult.releaseUrl) {
       window.open(lastResult.releaseUrl, '_blank');
     }
-  });
-  $('btn-version-skip').addEventListener('click', () => {
-    if (lastResult && lastResult.latest) {
-      localStorage.setItem('version.skipped', lastResult.latest);
-    }
-    closeModal();
-    renderPill(lastResult);
   });
   modalBuilt = true;
 }
