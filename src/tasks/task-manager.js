@@ -88,7 +88,7 @@ function toView(task) {
     message: task.message,
     logs: task.logs,
     buildId: task.buildId,
-    /** 本地 IPA 缓存是否仍可用（注册表为内存态，服务重启后即失效） */
+    /** 本地 IPA 缓存是否仍可用（元数据已落盘，服务重启后会从磁盘恢复注册表） */
     ipaAvailable: Boolean(findIpa(task.ipaId)),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
