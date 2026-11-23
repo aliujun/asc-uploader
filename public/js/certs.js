@@ -1,8 +1,6 @@
 /* 证书工具组件：CSR 生成、p12 导入提取、.cer 合成 p12、本地私钥管理 */
 import { gotoIssue } from './asc-certs.js';
-import {
-  $, api, bindEnter, downloadFile, escapeHtml, fmtSize, toast, withLoading,
-} from './common.js';
+import { $, api, bindEnter, downloadFile, escapeHtml, fmtSize, toast, withLoading } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '证书工具';
@@ -27,7 +25,7 @@ export const template = `<section id="tab-certs" class="tab-panel">
                     <textarea id="csr-text" rows="6" readonly></textarea>
                     <div class="form-row inline">
                         <button id="btn-download-csr">下载 .csr 文件</button>
-                        <button id="btn-goto-issue" class="primary">去证书管理页签发 .p12 →</button>
+                        <button id="btn-goto-issue" class="primary">去证书管理页签发 .p12</button>
                     </div>
                 </div>
 
@@ -50,7 +48,7 @@ export const template = `<section id="tab-certs" class="tab-panel">
             <div class="card">
                 <h2>第 2 步：到 Apple 后台换取 .cer 证书</h2>
                 <p class="muted"><b>推荐：</b>配置好 ASC 后可跳过此步，直接用 Apple API 签发并自动下载 .p12
-                    <button id="btn-goto-issue-step2" class="small" style="margin-left:6px">一键签发 →</button></p>
+                    <button id="btn-goto-issue-step2" class="small primary" style="margin-left:6px">一键签发</button></p>
                 <ol class="steps">
                     <li>登录 <a href="https://developer.apple.com/account/resources/certificates/list"
                             target="_blank">Apple Developer - Certificates</a>；</li>
@@ -109,31 +107,31 @@ let lastGeneratedKeyId = '';
  * @returns {Promise<void>}
  */
 async function generateCsr() {
-  const commonName = $('cert-cn').value.trim();
-  const remark = $('cert-remark').value.trim();
-  if (!remark) {
-    toast('请先填写所属项目（必填，用于区分各私钥对应的项目）', true);
-    $('cert-remark').focus();
-    return;
-  }
-  if (!commonName) {
-    toast('请先填写通用名称（一般填邮箱）', true);
-    return;
-  }
-  try {
-    const result = await api('/api/certs/keypair', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commonName, remark }),
-    });
-    $('csr-text').value = result.csrPem;
-    $('csr-result').classList.remove('hidden');
-    lastGeneratedKeyId = result.keyId;
-    toast(remark ? `CSR 已生成（${remark}），私钥已保存在本地` : 'CSR 已生成，私钥已保存在本地');
-    loadCertKeys();
-  } catch (err) {
-    toast(err.message, true);
-  }
+	const commonName = $('cert-cn').value.trim();
+	const remark = $('cert-remark').value.trim();
+	if (!remark) {
+		toast('请先填写所属项目（必填，用于区分各私钥对应的项目）', true);
+		$('cert-remark').focus();
+		return;
+	}
+	if (!commonName) {
+		toast('请先填写通用名称（一般填邮箱）', true);
+		return;
+	}
+	try {
+		const result = await api('/api/certs/keypair', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ commonName, remark })
+		});
+		$('csr-text').value = result.csrPem;
+		$('csr-result').classList.remove('hidden');
+		lastGeneratedKeyId = result.keyId;
+		toast(remark ? `CSR 已生成（${remark}），私钥已保存在本地` : 'CSR 已生成，私钥已保存在本地');
+		loadCertKeys();
+	} catch (err) {
+		toast(err.message, true);
+	}
 }
 
 /**
@@ -141,12 +139,12 @@ async function generateCsr() {
  * @returns {void}
  */
 function randomCommonName() {
-  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
-  let suffix = '';
-  for (let i = 0; i < 6; i++) {
-    suffix += chars[Math.floor(Math.random() * chars.length)];
-  }
-  $('cert-cn').value = `cert-${suffix}`;
+	const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+	let suffix = '';
+	for (let i = 0; i < 6; i++) {
+		suffix += chars[Math.floor(Math.random() * chars.length)];
+	}
+	$('cert-cn').value = `cert-${suffix}`;
 }
 
 /**
@@ -154,49 +152,47 @@ function randomCommonName() {
  * @returns {Promise<void>}
  */
 export async function loadCertKeys() {
-  const select = $('cert-key');
-  const wrap = $('cert-keys');
-  try {
-    const data = await api('/api/certs/keys');
-    certKeysCache.list = data.keys;
-    select.innerHTML = '<option value="">请选择私钥</option>';
-    wrap.innerHTML = data.keys.length === 0
-      ? '<span class="muted">暂无私钥</span>'
-      : '';
-    data.keys.forEach((k) => {
-      const label = k.remark ? `${k.remark} · ${k.commonName}` : k.commonName;
-      const option = document.createElement('option');
-      option.value = k.keyId;
-      option.textContent = `${label}（${new Date(k.createdAt).toLocaleString()}）`;
-      select.appendChild(option);
-      const row = document.createElement('div');
-      row.className = 'config-item';
-      row.innerHTML = `
+	const select = $('cert-key');
+	const wrap = $('cert-keys');
+	try {
+		const data = await api('/api/certs/keys');
+		certKeysCache.list = data.keys;
+		select.innerHTML = '<option value="">请选择私钥</option>';
+		wrap.innerHTML = data.keys.length === 0 ? '<span class="muted">暂无私钥</span>' : '';
+		data.keys.forEach(k => {
+			const label = k.remark ? `${k.remark} · ${k.commonName}` : k.commonName;
+			const option = document.createElement('option');
+			option.value = k.keyId;
+			option.textContent = `${label}（${new Date(k.createdAt).toLocaleString()}）`;
+			select.appendChild(option);
+			const row = document.createElement('div');
+			row.className = 'config-item';
+			row.innerHTML = `
         <div>
           <span class="name">${escapeHtml(k.remark || k.commonName)}</span>
           <div class="meta">${escapeHtml(k.remark ? `${k.commonName} · ` : '')}${new Date(k.createdAt).toLocaleString()} · ${k.keyId.slice(0, 8)}…</div>
         </div>
         <button class="small danger" data-key="${k.keyId}">删除</button>`;
-      row.querySelector('[data-key]').onclick = (event) => {
-        const label = k.remark || k.commonName;
-        if (!confirm(`确定删除私钥「${label}」？删除后无法再为它合成 p12。`)) {
-          return;
-        }
-        withLoading(event.currentTarget, '删除中...', async () => {
-          try {
-            await api(`/api/certs/keys/${k.keyId}`, { method: 'DELETE' });
-            loadCertKeys();
-          } catch (err) {
-            toast(err.message, true);
-          }
-        });
-      };
-      wrap.appendChild(row);
-    });
-    updateGenP12Button();
-  } catch (err) {
-    wrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
-  }
+			row.querySelector('[data-key]').onclick = event => {
+				const label = k.remark || k.commonName;
+				if (!confirm(`确定删除私钥「${label}」？删除后无法再为它合成 p12。`)) {
+					return;
+				}
+				withLoading(event.currentTarget, '删除中...', async () => {
+					try {
+						await api(`/api/certs/keys/${k.keyId}`, { method: 'DELETE' });
+						loadCertKeys();
+					} catch (err) {
+						toast(err.message, true);
+					}
+				});
+			};
+			wrap.appendChild(row);
+		});
+		updateGenP12Button();
+	} catch (err) {
+		wrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+	}
 }
 
 /**
@@ -204,9 +200,9 @@ export async function loadCertKeys() {
  * @returns {void}
  */
 function updateGenP12Button() {
-  const hasKey = Boolean($('cert-key').value);
-  $('btn-gen-p12').disabled = !hasKey;
-  $('btn-del-key').disabled = !hasKey;
+	const hasKey = Boolean($('cert-key').value);
+	$('btn-gen-p12').disabled = !hasKey;
+	$('btn-del-key').disabled = !hasKey;
 }
 
 /**
@@ -214,58 +210,55 @@ function updateGenP12Button() {
  * @returns {Promise<void>}
  */
 async function generateP12() {
-  const keyId = $('cert-key').value;
-  const cerContent = $('cert-cer').value.trim();
-  const inputPassword = $('cert-password').value;
-  const password = inputPassword || '123456';
-  if (!keyId) {
-    toast('请选择本地私钥', true);
-    return;
-  }
-  if (!cerContent) {
-    toast('请选择或粘贴 .cer 证书内容', true);
-    return;
-  }
-  if (inputPassword && inputPassword.length < 6) {
-    toast('p12 导出密码至少 6 位', true);
-    $('cert-password').focus();
-    return;
-  }
-  try {
-    const info = await api(`/api/certs/keys/${keyId}/describe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cerContent }),
-    });
-    if (info.isDevelopmentCert) {
-      const goOn = confirm(
-        '检测到这是 Apple Development（开发）证书，仅适用于真机调试。\n'
-        + '发布 App Store / Ad Hoc 版本需要 Apple Distribution（分发）证书。\n仍要继续合成 p12 吗？'
-      );
-      if (!goOn) {
-        return;
-      }
-    }
-    const response = await fetch(`/api/certs/keys/${keyId}/p12`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cerContent, password }),
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `合成失败（HTTP ${response.status}）`);
-    }
-    const blob = await response.blob();
-    const keyEntry = certKeysCache.list.find((k) => k.keyId === keyId);
-    const safeRemark = (keyEntry && keyEntry.remark || '').replace(/[\\/:*?"<>|]/g, '');
-    // 拼接证书用途标识：dev=开发证书，release=发布（Distribution）证书
-    const typeLabel = info.certType === 'development' ? 'dev' : (info.certType === 'distribution' ? 'release' : '');
-    const nameParts = [safeRemark, typeLabel].filter(Boolean).join('-');
-    downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate.p12', blob);
-    toast(inputPassword ? 'p12 已合成并开始下载' : 'p12 已合成（未填密码，默认密码 123456）');
-  } catch (err) {
-    toast(err.message, true);
-  }
+	const keyId = $('cert-key').value;
+	const cerContent = $('cert-cer').value.trim();
+	const inputPassword = $('cert-password').value;
+	const password = inputPassword || '123456';
+	if (!keyId) {
+		toast('请选择本地私钥', true);
+		return;
+	}
+	if (!cerContent) {
+		toast('请选择或粘贴 .cer 证书内容', true);
+		return;
+	}
+	if (inputPassword && inputPassword.length < 6) {
+		toast('p12 导出密码至少 6 位', true);
+		$('cert-password').focus();
+		return;
+	}
+	try {
+		const info = await api(`/api/certs/keys/${keyId}/describe`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ cerContent })
+		});
+		if (info.isDevelopmentCert) {
+			const goOn = confirm('检测到这是 Apple Development（开发）证书，仅适用于真机调试。\n' + '发布 App Store / Ad Hoc 版本需要 Apple Distribution（分发）证书。\n仍要继续合成 p12 吗？');
+			if (!goOn) {
+				return;
+			}
+		}
+		const response = await fetch(`/api/certs/keys/${keyId}/p12`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ cerContent, password })
+		});
+		if (!response.ok) {
+			const data = await response.json().catch(() => ({}));
+			throw new Error(data.error || `合成失败（HTTP ${response.status}）`);
+		}
+		const blob = await response.blob();
+		const keyEntry = certKeysCache.list.find(k => k.keyId === keyId);
+		const safeRemark = ((keyEntry && keyEntry.remark) || '').replace(/[\\/:*?"<>|]/g, '');
+		// 拼接证书用途标识：dev=开发证书，release=发布（Distribution）证书
+		const typeLabel = info.certType === 'development' ? 'dev' : info.certType === 'distribution' ? 'release' : '';
+		const nameParts = [safeRemark, typeLabel].filter(Boolean).join('-');
+		downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate.p12', blob);
+		toast(inputPassword ? 'p12 已合成并开始下载' : 'p12 已合成（未填密码，默认密码 123456）');
+	} catch (err) {
+		toast(err.message, true);
+	}
 }
 
 /**
@@ -273,8 +266,8 @@ async function generateP12() {
  * @returns {void}
  */
 function clearKeySelection() {
-  $('cert-key').value = '';
-  updateGenP12Button();
+	$('cert-key').value = '';
+	updateGenP12Button();
 }
 
 /**
@@ -282,8 +275,7 @@ function clearKeySelection() {
  * @returns {void}
  */
 function updateImportP12Button() {
-  $('btn-import-p12').disabled = !importP12State.base64
-    || !$('import-p12-remark').value.trim();
+	$('btn-import-p12').disabled = !importP12State.base64 || !$('import-p12-remark').value.trim();
 }
 
 /**
@@ -291,42 +283,42 @@ function updateImportP12Button() {
  * @returns {Promise<void>}
  */
 async function importP12Key() {
-  const remark = $('import-p12-remark').value.trim();
-  const inputPassword = $('import-p12-password').value;
-  const password = inputPassword || '123456';
-  if (!importP12State.base64) {
-    toast('请先选择 .p12 文件', true);
-    return;
-  }
-  if (!remark) {
-    toast('请填写所属项目（必填）', true);
-    return;
-  }
-  try {
-    const result = await api('/api/certs/keys/import-p12', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ p12Base64: importP12State.base64, password, remark }),
-    });
-    let message = `私钥已提取导入（${remark}）`;
-    if (result.cert) {
-      message += `，对应证书有效期至 ${new Date(result.cert.validNotAfter).toLocaleDateString()}`;
-    }
-    toast(message);
-    importP12State.base64 = '';
-    $('import-p12-file-name').textContent = '选择 .p12 文件';
-    $('import-p12-password').value = '';
-    $('import-p12-remark').value = '';
-    updateImportP12Button();
-    loadCertKeys();
-  } catch (err) {
-    toast(err.message, true);
-  }
+	const remark = $('import-p12-remark').value.trim();
+	const inputPassword = $('import-p12-password').value;
+	const password = inputPassword || '123456';
+	if (!importP12State.base64) {
+		toast('请先选择 .p12 文件', true);
+		return;
+	}
+	if (!remark) {
+		toast('请填写所属项目（必填）', true);
+		return;
+	}
+	try {
+		const result = await api('/api/certs/keys/import-p12', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ p12Base64: importP12State.base64, password, remark })
+		});
+		let message = `私钥已提取导入（${remark}）`;
+		if (result.cert) {
+			message += `，对应证书有效期至 ${new Date(result.cert.validNotAfter).toLocaleDateString()}`;
+		}
+		toast(message);
+		importP12State.base64 = '';
+		$('import-p12-file-name').textContent = '选择 .p12 文件';
+		$('import-p12-password').value = '';
+		$('import-p12-remark').value = '';
+		updateImportP12Button();
+		loadCertKeys();
+	} catch (err) {
+		toast(err.message, true);
+	}
 }
 
 /** 切到本页签时刷新本地私钥列表（内部已自吞异常，直调即可） */
 export function onShown() {
-  loadCertKeys();
+	loadCertKeys();
 }
 
 /**
@@ -334,84 +326,85 @@ export function onShown() {
  * @returns {void}
  */
 export function init() {
-  $('btn-random-cn').onclick = () => randomCommonName();
-  $('btn-gen-csr').onclick = () => withLoading($('btn-gen-csr'), '生成中...', generateCsr);
-  $('btn-download-csr').onclick = () => downloadFile('certificate signing request.csr', $('csr-text').value);
-  $('btn-goto-issue').onclick = () => gotoIssue(lastGeneratedKeyId);
-  $('btn-goto-issue-step2').onclick = () => gotoIssue();
-  const linkToAsc = $('link-certs-to-asc');
-  if (linkToAsc) {
-    linkToAsc.onclick = () => gotoIssue();
-  }
+	$('btn-random-cn').onclick = () => randomCommonName();
+	$('btn-gen-csr').onclick = () => withLoading($('btn-gen-csr'), '生成中...', generateCsr);
+	$('btn-download-csr').onclick = () => downloadFile('certificate signing request.csr', $('csr-text').value);
+	$('btn-goto-issue').onclick = () => gotoIssue(lastGeneratedKeyId);
+	$('btn-goto-issue-step2').onclick = () => gotoIssue();
+	const linkToAsc = $('link-certs-to-asc');
+	if (linkToAsc) {
+		linkToAsc.onclick = () => gotoIssue();
+	}
 
-  // 读取证书文件：PEM 文本直接填充；DER 二进制（Apple 下载的 .cer）转 Base64 后填充
-  $('cert-cer-file').addEventListener('change', async (event) => {
-    const file = event.target.files[0];
-    if (!file) {
-      return;
-    }
-    $('cert-cer-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
-    try {
-      const text = await file.text();
-      if (text.includes('-----BEGIN CERTIFICATE-----')) {
-        $('cert-cer').value = text.trim();
-      } else {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        let binary = '';
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        $('cert-cer').value = btoa(binary);
-      }
-      toast(`已读取 ${file.name}`);
-    } catch (err) {
-      toast(`读取文件失败：${err.message}`, true);
-    }
-  });
+	// 读取证书文件：PEM 文本直接填充；DER 二进制（Apple 下载的 .cer）转 Base64 后填充
+	$('cert-cer-file').addEventListener('change', async event => {
+		const file = event.target.files[0];
+		if (!file) {
+			return;
+		}
+		$('cert-cer-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
+		try {
+			const text = await file.text();
+			if (text.includes('-----BEGIN CERTIFICATE-----')) {
+				$('cert-cer').value = text.trim();
+			} else {
+				const bytes = new Uint8Array(await file.arrayBuffer());
+				let binary = '';
+				for (let i = 0; i < bytes.length; i++) {
+					binary += String.fromCharCode(bytes[i]);
+				}
+				$('cert-cer').value = btoa(binary);
+			}
+			toast(`已读取 ${file.name}`);
+		} catch (err) {
+			toast(`读取文件失败：${err.message}`, true);
+		}
+	});
 
-  $('btn-toggle-password').onclick = () => {
-    const input = $('cert-password');
-    const hidden = input.type === 'password';
-    input.type = hidden ? 'text' : 'password';
-    $('btn-toggle-password').textContent = hidden ? '隐藏' : '显示';
-  };
+	$('btn-toggle-password').onclick = () => {
+		const input = $('cert-password');
+		const hidden = input.type === 'password';
+		input.type = hidden ? 'text' : 'password';
+		$('btn-toggle-password').textContent = hidden ? '隐藏' : '显示';
+	};
 
-  $('btn-clear-password').onclick = () => {
-    $('cert-password').value = '';
-    $('cert-password').focus();
-  };
+	$('btn-clear-password').onclick = () => {
+		$('cert-password').value = '';
+		$('cert-password').focus();
+	};
 
-  $('cert-key').addEventListener('change', updateGenP12Button);
-  $('btn-del-key').onclick = () => clearKeySelection();
-  $('btn-gen-p12').onclick = () => withLoading($('btn-gen-p12'), '合成中...', async () => {
-    await generateP12();
-    updateGenP12Button();
-  });
+	$('cert-key').addEventListener('change', updateGenP12Button);
+	$('btn-del-key').onclick = () => clearKeySelection();
+	$('btn-gen-p12').onclick = () =>
+		withLoading($('btn-gen-p12'), '合成中...', async () => {
+			await generateP12();
+			updateGenP12Button();
+		});
 
-  $('import-p12-file').addEventListener('change', async (event) => {
-    const file = event.target.files[0];
-    if (!file) {
-      return;
-    }
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      importP12State.base64 = btoa(binary);
-      $('import-p12-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
-      updateImportP12Button();
-    } catch (err) {
-      toast(`读取文件失败：${err.message}`, true);
-    }
-  });
+	$('import-p12-file').addEventListener('change', async event => {
+		const file = event.target.files[0];
+		if (!file) {
+			return;
+		}
+		try {
+			const bytes = new Uint8Array(await file.arrayBuffer());
+			let binary = '';
+			for (let i = 0; i < bytes.length; i++) {
+				binary += String.fromCharCode(bytes[i]);
+			}
+			importP12State.base64 = btoa(binary);
+			$('import-p12-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
+			updateImportP12Button();
+		} catch (err) {
+			toast(`读取文件失败：${err.message}`, true);
+		}
+	});
 
-  $('import-p12-remark').addEventListener('input', updateImportP12Button);
-  $('btn-import-p12').onclick = () => withLoading($('btn-import-p12'), '提取中...', importP12Key);
+	$('import-p12-remark').addEventListener('input', updateImportP12Button);
+	$('btn-import-p12').onclick = () => withLoading($('btn-import-p12'), '提取中...', importP12Key);
 
-  // 回车提交统一走 withLoading：与按钮点击同源防重复
-  bindEnter('cert-remark', () => withLoading($('btn-gen-csr'), '生成中...', generateCsr));
-  bindEnter('cert-cn', () => withLoading($('btn-gen-csr'), '生成中...', generateCsr));
-  bindEnter('cert-password', () => withLoading($('btn-gen-p12'), '合成中...', generateP12));
+	// 回车提交统一走 withLoading：与按钮点击同源防重复
+	bindEnter('cert-remark', () => withLoading($('btn-gen-csr'), '生成中...', generateCsr));
+	bindEnter('cert-cn', () => withLoading($('btn-gen-csr'), '生成中...', generateCsr));
+	bindEnter('cert-password', () => withLoading($('btn-gen-p12'), '合成中...', generateP12));
 }

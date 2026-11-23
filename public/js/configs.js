@@ -24,7 +24,7 @@ export const template = `<section id="tab-configs" class="tab-panel">
                 <p class="muted"><button id="btn-clear-ipa-cache" class="small">清理 IPA 缓存</button> <span class="muted">删除未被进行中任务引用的本地 IPA 缓存文件</span></p>
             </div>
             <div class="card">
-                <h2>配置列表 <button id="btn-new-config" class="small">新增配置</button></h2>
+                <h2>配置列表 <button id="btn-new-config" class="small primary">新增配置</button></h2>
                 <div id="config-list" class="config-list"></div>
                 <details class="help">
                     <summary>如何获取 API 密钥（.p8 文件）</summary>
