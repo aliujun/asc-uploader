@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { createClient } = require('../../core/asc-client');
+const { createClient, parsePaging } = require('../../core/asc-client');
 
 const router = express.Router();
 
@@ -16,7 +16,8 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const data = await createClient(String(configId)).listBetaGroups();
+    const { limit, offset } = parsePaging(req.query, 200);
+    const data = await createClient(String(configId)).listBetaGroups(limit, offset);
     const groups = (data.data || []).map((group) => ({
       id: group.id,
       name: group.attributes.name,

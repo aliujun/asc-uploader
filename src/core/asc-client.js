@@ -258,38 +258,43 @@ class AscClient {
   /**
    * 获取 app 列表
    * @param {number} [limit=200] 单页数量上限
+   * @param {number} [offset=0] 起始偏移（分页用）
    * @returns {Promise<Object>} ASC apps 响应
    */
-  async listApps(limit = 200) {
-    return this.request('GET', `/v1/apps?limit=${limit}`);
+  async listApps(limit = 200, offset = 0) {
+    return this.request('GET', `/v1/apps?${pagingQuery(limit, offset)}`);
   }
 
   /**
    * 获取指定 app 的 build 列表（按上传时间倒序，附带 preReleaseVersion 用于取短版本号）
    * @param {string} appId app ID
    * @param {number} [limit=50] 单页数量上限
+   * @param {number} [offset=0] 起始偏移（分页用）
    * @returns {Promise<Object>} ASC builds 响应
    */
-  async listBuilds(appId, limit = 50) {
-    return this.request('GET', `/v1/builds?filter[app]=${appId}&limit=${limit}&sort=-uploadedDate&include=preReleaseVersion`);
+  async listBuilds(appId, limit = 50, offset = 0) {
+    return this.request('GET', `/v1/builds?filter[app]=${appId}&${pagingQuery(limit, offset)}&sort=-uploadedDate&include=preReleaseVersion`);
   }
 
   /**
    * 获取指定 app 的 App Store 版本列表（含审核状态 appStoreState）
    * @param {string} appId app ID
    * @param {number} [limit=50] 单页数量上限
+   * @param {number} [offset=0] 起始偏移（分页用）
    * @returns {Promise<Object>} ASC appStoreVersions 响应
    */
-  async listAppStoreVersions(appId, limit = 50) {
-    return this.request('GET', `/v1/apps/${appId}/appStoreVersions?limit=${limit}`);
+  async listAppStoreVersions(appId, limit = 50, offset = 0) {
+    return this.request('GET', `/v1/apps/${appId}/appStoreVersions?${pagingQuery(limit, offset)}`);
   }
 
   /**
    * 获取 beta 测试组列表
+   * @param {number} [limit=200] 单页数量上限
+   * @param {number} [offset=0] 起始偏移（分页用）
    * @returns {Promise<Object>} ASC betaGroups 响应
    */
-  async listBetaGroups() {
-    return this.request('GET', '/v1/betaGroups?limit=200');
+  async listBetaGroups(limit = 200, offset = 0) {
+    return this.request('GET', `/v1/betaGroups?${pagingQuery(limit, offset)}`);
   }
 
   /**
@@ -377,8 +382,8 @@ class AscClient {
    * @param {number} [limit=100] 单页数量上限
    * @returns {Promise<Object>} ASC certificates 响应
    */
-  async listCertificates(limit = 100) {
-    return this.request('GET', `/v1/certificates?limit=${limit}`);
+  async listCertificates(limit = 100, offset = 0) {
+    return this.request('GET', `/v1/certificates?${pagingQuery(limit, offset)}`);
   }
 
   /**
@@ -411,8 +416,8 @@ class AscClient {
    * @param {number} [limit=200] 单页数量上限
    * @returns {Promise<Object>} ASC profiles 响应（data + included 关联数据）
    */
-  async listProfiles(limit = 200) {
-    return this.request('GET', `/v1/profiles?limit=${limit}&include=bundleId,certificates`);
+  async listProfiles(limit = 200, offset = 0) {
+    return this.request('GET', `/v1/profiles?${pagingQuery(limit, offset)}&include=bundleId,certificates`);
   }
 
   /**
@@ -420,8 +425,8 @@ class AscClient {
    * @param {number} [limit=200] 单页数量上限
    * @returns {Promise<Object>} ASC bundleIds 响应
    */
-  async listBundleIds(limit = 200) {
-    return this.request('GET', `/v1/bundleIds?limit=${limit}`);
+  async listBundleIds(limit = 200, offset = 0) {
+    return this.request('GET', `/v1/bundleIds?${pagingQuery(limit, offset)}`);
   }
 
   /**
@@ -481,8 +486,8 @@ class AscClient {
    * @param {number} [limit=200] 单页数量上限（API 最大 200）
    * @returns {Promise<Object>} ASC devices 响应
    */
-  async listDevices(limit = 200) {
-    return this.request('GET', `/v1/devices?limit=${limit}`);
+  async listDevices(limit = 200, offset = 0) {
+    return this.request('GET', `/v1/devices?${pagingQuery(limit, offset)}`);
   }
 
   /**
@@ -543,12 +548,37 @@ function sleep(ms) {
 }
 
 /**
- * 根据配置 ID 创建 ASC 客户端
- * @param {string} configId 配置 ID
- * @returns {AscClient} 客户端实例
+ * 构造分页 query 参数（offset 为 0 时不拼接，保持与旧行为一致）
+ * @param {number} limit 单页数量上限
+ * @param {number} offset 起始偏移
+ * @returns {string} query 片段（不含开头的 ?）
  */
-function createClient(configId) {
-  return new AscClient(configId);
+function pagingQuery(limit, offset) {
+  return offset > 0 ? `limit=${limit}&offset=${offset}` : `limit=${limit}`;
 }
 
-module.exports = { createClient, AscClient, API_BASE, doFetch, resolveActiveProxyUrl };
+/**
+ * 解析列表接口的分页参数（query 中 page/limit 可选，默认值由调用方传入）
+ * @param {Object} query express 的 req.query 对象
+ * @param {number} defaultLimit 默认单页数量上限
+ * @returns {{limit: number, offset: number}} 分页参数
+ */
+function parsePaging(query, defaultLimit) {
+  const limitRaw = Number.parseInt(query && query.limit, 10);
+  const pageRaw = Number.parseInt(query && query.page, 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : defaultLimit;
+  const page = Number.isFinite(pageRaw) && pageRaw > 1 ? pageRaw : 1;
+  return { limit, offset: (page - 1) * limit };
+}
+
+/**
+ * 根据配置 ID 创建 ASC 客户端
+ * @param {string} configId 配置 ID
+ * @param {AbortSignal} [signal] 可选中断信号，触发时中断进行中的请求
+ * @returns {AscClient} 客户端实例
+ */
+function createClient(configId, signal) {
+  return new AscClient(configId, signal);
+}
+
+module.exports = { createClient, AscClient, API_BASE, doFetch, resolveActiveProxyUrl, parsePaging };

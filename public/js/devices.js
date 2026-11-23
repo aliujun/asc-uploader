@@ -1,6 +1,6 @@
 /* 设备管理组件：注册设备列表、状态统计、注册新设备（UDID） */
 import {
-  $, api, escapeHtml, toast, withLoading,
+  $, api, escapeHtml, fillSelect, formatDate, toast, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -108,40 +108,6 @@ function statusBadgeHtml(status) {
     return '<span class="badge err">已停用</span>';
   }
   return `<span class="badge">${escapeHtml(status || '未知')}</span>`;
-}
-
-/**
- * 格式化日期为本地日期文本
- * @param {string} iso ISO 时间字符串
- * @returns {string} 本地日期，无效时返回 '-'
- */
-function formatDate(iso) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return '-';
-  }
-  return date.toLocaleDateString('zh-CN');
-}
-
-/**
- * 通用下拉填充
- * @param {HTMLSelectElement} select 目标下拉框
- * @param {string} placeholder 占位文案
- * @param {Array<{value: string, label: string}>} items 选项列表
- * @returns {void}
- */
-function fillSelect(select, placeholder, items) {
-  select.innerHTML = '';
-  const defaultOption = document.createElement('option');
-  defaultOption.value = '';
-  defaultOption.textContent = placeholder;
-  select.appendChild(defaultOption);
-  items.forEach((item) => {
-    const option = document.createElement('option');
-    option.value = item.value;
-    option.textContent = item.label;
-    select.appendChild(option);
-  });
 }
 
 /**
@@ -318,12 +284,12 @@ export function init() {
     }
     loadDeviceList();
   });
-  $('btn-device-refresh').addEventListener('click', () => {
+  $('btn-device-refresh').addEventListener('click', (event) => {
     if (!state.configId) {
       toast('请先选择 ASC 配置', true);
       return;
     }
-    loadDeviceList();
+    withLoading(event.currentTarget, '刷新中...', loadDeviceList);
   });
   $('btn-device-add').addEventListener('click', () => {
     openAddModal();

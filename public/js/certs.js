@@ -174,13 +174,19 @@ export async function loadCertKeys() {
           <div class="meta">${escapeHtml(k.remark ? `${k.commonName} · ` : '')}${new Date(k.createdAt).toLocaleString()} · ${k.keyId.slice(0, 8)}…</div>
         </div>
         <button class="small danger" data-key="${k.keyId}">删除</button>`;
-      row.querySelector('[data-key]').onclick = async () => {
+      row.querySelector('[data-key]').onclick = (event) => {
         const label = k.remark || k.commonName;
         if (!confirm(`确定删除私钥「${label}」？删除后无法再为它合成 p12。`)) {
           return;
         }
-        await api(`/api/certs/keys/${k.keyId}`, { method: 'DELETE' });
-        loadCertKeys();
+        withLoading(event.currentTarget, '删除中...', async () => {
+          try {
+            await api(`/api/certs/keys/${k.keyId}`, { method: 'DELETE' });
+            loadCertKeys();
+          } catch (err) {
+            toast(err.message, true);
+          }
+        });
       };
       wrap.appendChild(row);
     });
@@ -397,7 +403,8 @@ export function init() {
   $('import-p12-remark').addEventListener('input', updateImportP12Button);
   $('btn-import-p12').onclick = () => withLoading($('btn-import-p12'), '提取中...', importP12Key);
 
-  bindEnter('cert-remark', generateCsr);
-  bindEnter('cert-cn', generateCsr);
-  bindEnter('cert-password', generateP12);
+  // 回车提交统一走 withLoading：与按钮点击同源防重复
+  bindEnter('cert-remark', () => withLoading($('btn-gen-csr'), '生成中...', generateCsr));
+  bindEnter('cert-cn', () => withLoading($('btn-gen-csr'), '生成中...', generateCsr));
+  bindEnter('cert-password', () => withLoading($('btn-gen-p12'), '合成中...', generateP12));
 }

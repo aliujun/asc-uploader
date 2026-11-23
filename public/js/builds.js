@@ -42,6 +42,9 @@ const BUILD_STATE_TEXT = {
 /** 分发弹窗状态 */
 const distributeState = { buildId: null, configId: null };
 
+/** build 列表加载请求序号（防竞态：丢弃快速切换后的过期响应） */
+let buildsReqSeq = 0;
+
 /**
  * build 处理状态的中文文案
  * @param {string} state 状态英文标识
@@ -120,9 +123,14 @@ async function loadBuilds() {
     wrap.innerHTML = '<span class="muted">请先在上方选择配置与 App</span>';
     return;
   }
+  // 请求序号守卫：快速切换配置/App 时丢弃过期响应，避免旧数据覆盖新数据
+  const seq = ++buildsReqSeq;
   wrap.innerHTML = '<span class="inline-loading">正在加载 build 列表...</span>';
   try {
     const data = await api(`/api/apps/${appId}/builds?configId=${configId}`);
+    if (seq !== buildsReqSeq) {
+      return;
+    }
     if (data.builds.length === 0) {
       wrap.innerHTML = '<span class="muted">该 App 暂无 build</span>';
       return;
@@ -168,7 +176,7 @@ async function openDistributeModal(buildId, version, configId) {
       : '';
     data.groups.forEach((g) => {
       const label = document.createElement('label');
-      label.innerHTML = `<input type="checkbox" value="${g.id}"> ${escapeHtml(g.name)}${g.isInternalGroup ? '（内部）' : ''}`;
+      label.innerHTML = `<input type="checkbox" value="${escapeHtml(g.id)}"> ${escapeHtml(g.name)}${g.isInternalGroup ? '（内部）' : ''}`;
       wrap.appendChild(label);
     });
   } catch (err) {
@@ -187,7 +195,7 @@ async function confirmDistribute() {
     return;
   }
   try {
-    await api(`/api/builds/${distributeState.buildId}/distribute`, {
+    await api(`/api/apps/${distributeState.buildId}/distribute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ configId: distributeState.configId, betaGroupIds }),

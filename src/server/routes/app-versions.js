@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { createClient } = require('../../core/asc-client');
+const { createClient, parsePaging } = require('../../core/asc-client');
 
 const router = express.Router();
 
@@ -31,7 +31,8 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const data = await createClient(configId).listAppStoreVersions(appId);
+    const { limit, offset } = parsePaging(req.query, 50);
+    const data = await createClient(configId).listAppStoreVersions(appId, limit, offset);
     const versions = (data.data || []).map((item) => {
       const attributes = item.attributes || {};
       return {

@@ -6,6 +6,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const express = require('express');
 const c = require('../../core/term');
+const { doFetch } = require('../../core/asc-client');
 
 const router = express.Router();
 
@@ -111,7 +112,8 @@ async function gitBehindCount() {
  * @throws {Error} 网络失败或接口异常时抛出
  */
 async function fetchLatestRelease() {
-  const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+  // 走统一的 doFetch：配置了代理时 GitHub 请求同样经过代理，避免直连超时
+  const response = await doFetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
     headers: {
       // GitHub API 强制要求 User-Agent
       'User-Agent': 'asc-uploader-version-check',
@@ -178,8 +180,9 @@ async function checkVersion(force) {
   } else {
     payload.behindCount = null;
   }
-  // git 检测偶发失败（网络抖动等）用短缓存，到点自动重试；成功则正常缓存 1 小时
-  cache = { checkedAt: Date.now(), ttl: payload.behindCount === null ? RETRY_TTL_MS : CACHE_TTL_MS, payload };
+  // git 检测偶发失败（网络抖动等）用短缓存，到点自动重试；其余（含 git 成功）正常缓存 1 小时
+  const useRetryTtl = runMode === 'git' && payload.behindCount === null;
+  cache = { checkedAt: Date.now(), ttl: useRetryTtl ? RETRY_TTL_MS : CACHE_TTL_MS, payload };
   return payload;
 }
 

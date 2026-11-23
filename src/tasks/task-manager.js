@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { getDir, ensureDirs } = require('../config/paths');
 const { runUploadPipeline } = require('./upload-pipeline');
-const { findIpa } = require('../server/routes/ipa');
+const { findIpa, setProtectedIpaResolver } = require('../server/routes/ipa');
 const c = require('../core/term');
 
 /** 任务文件路径 */
@@ -51,6 +51,17 @@ const ABORTABLE_STAGES = new Set([
   'PUSHING_CHUNKS',
 ]);
 
+// 注入 IPA 缓存清理保护名单：进行中任务引用的 IPA 不允许被清理接口删除
+setProtectedIpaResolver(() => {
+  const ids = new Set();
+  for (const task of tasks) {
+    if (isStageActive(task.stage)) {
+      ids.add(task.ipaId);
+    }
+  }
+  return ids;
+});
+
 /**
  * 任务对前端脱敏后的视图
  * @param {Object} task 任务对象
@@ -69,6 +80,7 @@ function toView(task) {
     buildVersion: task.buildVersion,
     autoTestflight: task.autoTestflight,
     betaGroupIds: task.betaGroupIds,
+    attemptCount: task.attemptCount || 1,
     stage: task.stage,
     progress: task.progress,
     uploadedBytes: task.uploadedBytes,
@@ -95,7 +107,7 @@ async function loadTasks() {
     for (const item of list) {
       if (ACTIVE_STAGES.has(item.stage)) {
         item.stage = 'FAILED';
-        item.message = '服务重启导致任务中断，可重试';
+        item.message = '服务重启导致任务中断（本地 IPA 缓存已随重启清理，请重新上传 IPA 创建新任务）';
         addLog(item, '服务重启，任务中断');
       }
       tasks.push(item);
@@ -107,15 +119,22 @@ async function loadTasks() {
   }
 }
 
+/** 任务文件持久化上限（只保留最近 100 条，防止 tasks.json 无限膨胀） */
+const PERSIST_TASK_LIMIT = 100;
+
 /**
- * 持久化任务到 tasks.json（串行化写，避免并发损坏）
- * @returns {Promise<void>}
+ * 持久化任务到 tasks.json（串行化写，避免并发损坏）。
+ * 写入失败只记日志不向外抛，避免未处理的 rejection 毒化 persistChain 导致后续持久化全部失效。
+ * @returns {Promise<void>} 持久化完成（或失败已被吞掉）后 resolve
  */
 function persist() {
-  persistChain = persistChain.then(async () => {
+  const next = persistChain.then(async () => {
     await ensureDirs();
-    const body = JSON.stringify({ tasks: tasks.map(toView) }, null, 2);
+    const body = JSON.stringify({ tasks: tasks.slice(0, PERSIST_TASK_LIMIT).map(toView) }, null, 2);
     await fs.writeFile(tasksFile(), body, 'utf8');
+  });
+  persistChain = next.catch((err) => {
+    console.error(`${c.red('[任务]')} tasks.json 持久化失败：${err.message}`);
   });
   return persistChain;
 }
@@ -386,6 +405,16 @@ function isStageActive(stage) {
 }
 
 /**
+ * 判断任务是否处于可中断阶段（提交校验之前）。
+ * 供路由层校验与前端按钮显隐共用同一份阶段定义（routes/tasks.js 不再维护黑名单）
+ * @param {string} stage 阶段英文标识
+ * @returns {boolean} 可中断返回 true
+ */
+function isStageAbortable(stage) {
+  return ABORTABLE_STAGES.has(stage);
+}
+
+/**
  * 获取任务列表视图
  * @returns {Array<Object>} 任务视图列表
  */
@@ -406,4 +435,5 @@ module.exports = {
   toView,
   broadcast,
   isStageActive,
+  isStageAbortable,
 };

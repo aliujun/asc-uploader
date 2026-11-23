@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { createClient } = require('../../core/asc-client');
+const { createClient, parsePaging } = require('../../core/asc-client');
 const c = require('../../core/term');
 
 const router = express.Router();
@@ -27,7 +27,8 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const data = await createClient(configId).listApps();
+    const { limit, offset } = parsePaging(req.query, 200);
+    const data = await createClient(configId).listApps(limit, offset);
     const apps = (data.data || []).map((app) => ({
       id: app.id,
       name: app.attributes.name,
@@ -51,7 +52,8 @@ router.get('/:id/builds', async (req, res) => {
     return;
   }
   try {
-    const data = await createClient(configId).listBuilds(req.params.id);
+    const { limit, offset } = parsePaging(req.query, 50);
+    const data = await createClient(configId).listBuilds(req.params.id, limit, offset);
     // 短版本号（CFBundleShortVersionString）不在 builds 资源上，需从 included 的 preReleaseVersion 中取
     const preReleaseVersions = {};
     (data.included || []).forEach((inc) => {
@@ -82,10 +84,10 @@ router.get('/:id/builds', async (req, res) => {
 });
 
 /**
- * POST /api/builds/:id/distribute {configId, betaGroupIds} 把 build 加入测试组
+ * POST /api/apps/:id/distribute {configId, betaGroupIds} 把 build 加入测试组
  * @returns {void}
  */
-router.post('/distribute/:buildId', async (req, res) => {
+router.post('/:id/distribute', async (req, res) => {
   const { configId } = req.body || {};
   const betaGroupIds = Array.isArray(req.body && req.body.betaGroupIds) ? req.body.betaGroupIds : [];
   if (!configId) {
@@ -97,7 +99,7 @@ router.post('/distribute/:buildId', async (req, res) => {
     return;
   }
   try {
-    await createClient(configId).distributeBuild(req.params.buildId, betaGroupIds);
+    await createClient(configId).distributeBuild(req.params.id, betaGroupIds);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err.message });

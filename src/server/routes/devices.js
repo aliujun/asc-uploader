@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { createClient } = require('../../core/asc-client');
+const { createClient, parsePaging } = require('../../core/asc-client');
 
 const router = express.Router();
 
@@ -30,7 +30,8 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const data = await createClient(configId).listDevices();
+    const { limit, offset } = parsePaging(req.query, 200);
+    const data = await createClient(configId).listDevices(limit, offset);
     const list = (data.data || []).map((item) => {
       const attributes = item.attributes || {};
       return {

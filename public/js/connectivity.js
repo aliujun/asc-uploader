@@ -1,5 +1,5 @@
 /* 连通性组件：网络出口显示、Apple 服务器连通性测试 */
-import { $, api, escapeHtml, toast } from './common.js';
+import { $, api, escapeHtml, toast, withLoading } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '连通性';
@@ -43,8 +43,6 @@ export async function loadConnectivityInfo() {
  */
 async function runConnectivityTest() {
   const wrap = $('conn-results');
-  const button = $('btn-conn-test');
-  button.disabled = true;
   wrap.innerHTML = '<span class="inline-loading">测试中，最长等待约 8 秒/项...</span>';
   try {
     const data = await api('/api/connectivity/test', { method: 'POST' });
@@ -66,7 +64,6 @@ async function runConnectivityTest() {
   } catch (err) {
     wrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
   } finally {
-    button.disabled = false;
     loadConnectivityInfo();
   }
 }
@@ -81,5 +78,5 @@ export function onShown() {
  * @returns {void}
  */
 export function init() {
-  $('btn-conn-test').onclick = () => runConnectivityTest();
+  $('btn-conn-test').onclick = () => withLoading($('btn-conn-test'), '测试中...', runConnectivityTest);
 }

@@ -17,7 +17,7 @@ scripts/
 *.pem
 *.p12
 *.csr
-.cer
+*.cer
 *.ipa
 *.mobileprovision
 

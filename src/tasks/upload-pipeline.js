@@ -340,12 +340,15 @@ function buildValidationErrorMessage(errors) {
  */
 async function pollBuildReady(client, appId, ipa, hooks, signal) {
   const startedAt = Date.now();
+  // 轮询间隔从 5s 起步按 1.5 倍指数退避至 15s，减少处理等待期间的无效请求
+  let interval = POLL_START_MS;
   for (;;) {
     if (Date.now() - startedAt > PROCESS_TIMEOUT_MS) {
       throw new Error('等待 build 处理超时（超过 90 分钟），请稍后在 Builds 页确认结果');
     }
-    await sleep(POLL_START_MS);
+    await sleep(interval);
     throwIfAborted(signal);
+    interval = Math.min(POLL_MAX_MS, Math.round(interval * 1.5));
     const data = await client.listBuilds(appId, 100);
     // 短版本号在关联的 preReleaseVersion 资源上（builds 自身没有该字段）
     const preVersions = {};

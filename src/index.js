@@ -5,6 +5,7 @@ const { exec } = require('child_process');
 const http = require('http');
 const { createApp } = require('./server/app');
 const { loadTasks } = require('./tasks/task-manager');
+const { sweepOrphanIpas } = require('./server/routes/ipa');
 const term = require('./core/term');
 const { getDir } = require('./config/paths');
 const { version } = require('../package.json');
@@ -126,6 +127,8 @@ async function main() {
 		}
 		const url = `http://localhost:${port}`;
 		printBanner(url);
+		// 启动时清扫上次运行遗留的孤儿 IPA 缓存（registry 为内存态，重启后全部失效）
+		sweepOrphanIpas();
 		// 启动时检测新版本并输出控制台警告（后台执行，不阻塞启动）
 		require('./server/routes/version').warnIfOutdated().catch(() => {});
 		if (!opts.noOpen) {
@@ -148,7 +151,8 @@ function tryListen(app, port) {
 		const server = http.createServer(app);
 		server.once('error', () => resolve(false));
 		server.once('listening', () => resolve(true));
-		server.listen(port);
+		// 只监听本机回环地址，避免局域网内其他设备访问本地服务（IPA/证书均为敏感数据）
+		server.listen(port, '127.0.0.1');
 	});
 }
 

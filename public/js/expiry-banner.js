@@ -5,6 +5,9 @@ import { $, api, daysLeft, escapeHtml } from './common.js';
 /** 紧急阈值（天）：剩余天数不超过该值时计入摘要中的紧急数量并触发桌面通知 */
 const URGENT_DAYS = 30;
 
+/** 总览缓存有效期（毫秒）：超时后 getOverview 自动重新拉取，避免打开总览页长期看到启动时的旧数据 */
+const CACHE_TTL_MS = 60 * 1000;
+
 /** 模块级通知标记：一次页面会话只弹一次桌面通知 */
 let notified = false;
 
@@ -13,6 +16,9 @@ let dismissed = false;
 
 /** 最近一次总览数据缓存（getOverview 复用，避免摘要条与总览页重复请求） */
 let cachedItems = null;
+
+/** 最近一次拉取时间戳（配合 CACHE_TTL_MS 判断缓存是否新鲜） */
+let cachedAt = 0;
 
 /** 最近一次响应的临期阈值（天），摘要文案使用 */
 let cachedWindowDays = 60;
@@ -30,12 +36,12 @@ export async function loadOverview() {
 }
 
 /**
- * 获取总览数据：优先返回缓存，未加载过则拉取一次
+ * 获取总览数据：缓存新鲜（60 秒内）时直接返回，未加载过或已过期则重新拉取
  * @returns {Promise<Array>} 配置维度的临期数据
  * @throws {Error} 拉取失败时抛出
  */
 export async function getOverview() {
-  if (cachedItems) {
+  if (cachedItems && Date.now() - cachedAt < CACHE_TTL_MS) {
     return cachedItems;
   }
   return fetchOverview();
@@ -57,11 +63,12 @@ export async function refreshOverview() {
 async function fetchOverview() {
   const data = await api('/api/expiry-overview');
   cachedItems = data.items || [];
+  cachedAt = Date.now();
   if (Number.isFinite(data.windowDays)) {
     cachedWindowDays = data.windowDays;
   }
   renderSummary(cachedItems);
-  notifyUrgent(cachedItems);
+  notifyUrgent(cachedItems).catch(() => { /* 通知失败静默忽略 */ });
   return cachedItems;
 }
 
@@ -82,12 +89,18 @@ function renderSummary(items) {
       failed += 1;
     }
     (item.certs || []).forEach((cert) => {
+      if (!cert.expiring) {
+        return;
+      }
       certCount += 1;
       if (isUrgent(cert)) {
         urgent += 1;
       }
     });
     (item.profiles || []).forEach((profile) => {
+      if (!profile.expiring) {
+        return;
+      }
       profileCount += 1;
       if (isUrgent(profile) || isProfileInvalid(profile)) {
         urgent += 1;
@@ -149,21 +162,21 @@ function isProfileInvalid(profile) {
 /**
  * 30 天内（或已失效）项弹一次桌面通知；权限未授权时先请求
  * @param {Array} items 配置维度的临期数据
- * @returns {void}
+ * @returns {Promise<void>}
  */
-function notifyUrgent(items) {
+async function notifyUrgent(items) {
   if (notified) {
     return;
   }
   let count = 0;
   items.forEach((item) => {
     (item.certs || []).forEach((cert) => {
-      if (isUrgent(cert)) {
+      if (cert.expiring && isUrgent(cert)) {
         count += 1;
       }
     });
     (item.profiles || []).forEach((profile) => {
-      if (isUrgent(profile) || isProfileInvalid(profile)) {
+      if (profile.expiring && (isUrgent(profile) || isProfileInvalid(profile))) {
         count += 1;
       }
     });
@@ -182,11 +195,10 @@ function notifyUrgent(items) {
   };
   if (Notification.permission === 'granted') {
     show();
-  } else {
-    Notification.requestPermission().then((permission) => {
-      if (permission === 'granted') {
-        show();
-      }
-    }).catch(() => {});
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission === 'granted') {
+    show();
   }
 }

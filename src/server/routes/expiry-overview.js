@@ -46,7 +46,7 @@ function isProfileExpiring(profile) {
 }
 
 /**
- * 拉取单个配置的临期证书与描述文件（ASC API 实时读取）
+ * 拉取单个配置的全部证书与描述文件（每条携带 expiring 临期标记与 platform 字段）
  * @param {{id: string, name: string}} config 配置项（listSafe 脱敏结构）
  * @returns {Promise<Object>} { configId, configName, certs, profiles } 或 { configId, configName, error }
  */
@@ -54,23 +54,26 @@ async function fetchConfigExpiry(config) {
   try {
     const client = createClient(config.id);
     const [certsData, profilesData] = await Promise.all([client.listCertificates(), client.listProfiles()]);
-    const certs = (certsData.data || [])
-      .map((item) => item.attributes || {})
-      .filter(isCertExpiring)
-      .map((attributes) => ({
+    const certs = (certsData.data || []).map((item) => {
+      const attributes = item.attributes || {};
+      return {
         displayName: attributes.displayName || '',
         certificateType: attributes.certificateType || '',
+        platform: attributes.platform || '',
         expirationDate: attributes.expirationDate || '',
-      }));
-    const profiles = (profilesData.data || [])
-      .map((item) => item.attributes || {})
-      .filter(isProfileExpiring)
-      .map((attributes) => ({
+        expiring: isCertExpiring(attributes),
+      };
+    });
+    const profiles = (profilesData.data || []).map((item) => {
+      const attributes = item.attributes || {};
+      return {
         name: attributes.name || '',
         profileType: attributes.profileType || '',
         profileState: attributes.profileState || '',
         expirationDate: attributes.expirationDate || '',
-      }));
+        expiring: isProfileExpiring(attributes),
+      };
+    });
     return { configId: config.id, configName: config.name, certs, profiles };
   } catch (err) {
     return { configId: config.id, configName: config.name, error: err.message };
@@ -100,7 +103,7 @@ async function runPool(items, limit, worker) {
 }
 
 /**
- * GET /api/expiry-overview 聚合全部配置的临期证书与描述文件（每次实时读取 Apple，数据量已过滤）
+ * GET /api/expiry-overview 聚合全部配置的全部证书与描述文件（每条含 expiring 临期标记，实时读取 Apple）
  * @returns {void}
  */
 router.get('/', async (req, res) => {

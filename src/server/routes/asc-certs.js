@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs').promises;
 
 const express = require('express');
-const { createClient } = require('../../core/asc-client');
+const { createClient, parsePaging } = require('../../core/asc-client');
 const certs = require('../../core/certs');
 const store = require('../../config/store');
 const paths = require('../../config/paths');
@@ -77,13 +77,15 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const data = await createClient(configId).listCertificates();
+    const { limit, offset } = parsePaging(req.query, 100);
+    const data = await createClient(configId).listCertificates(limit, offset);
     const list = (data.data || []).map((item) => ({
       id: item.id,
       displayName: item.attributes.displayName || '',
       certificateType: item.attributes.certificateType || '',
       serialNumber: item.attributes.serialNumber || '',
       createdDate: item.attributes.createdDate || '',
+      platform: item.attributes.platform || '',
       expirationDate: item.attributes.expirationDate || '',
     }));
     res.json({ certs: list });

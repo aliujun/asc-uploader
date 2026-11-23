@@ -337,6 +337,31 @@ button.danger {
 	color: var(--err);
 }
 
+/* 通用按钮类（.btn 系列用于版本弹窗等不方便依赖元素选择器的场景） */
+.btn {
+	padding: 8px 16px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: #fff;
+	cursor: pointer;
+	font-size: 13px;
+}
+.btn:hover:not(:disabled) {
+	background: #f3f4f6;
+}
+.btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.btn-ghost {
+	background: transparent;
+	border-color: var(--border);
+}
+.btn-sm {
+	padding: 4px 10px;
+	font-size: 12px;
+}
+
 .switch-label {
 	display: flex;
 	align-items: center;
@@ -883,4 +908,20 @@ textarea {
 .expiry-group-title .badge {
 	margin-left: 4px;
 	font-weight: 400;
+}
+/* 到期总览页：明细筛选按钮组 */
+.expiry-filter {
+	display: inline-flex;
+	gap: 6px;
+	margin-left: 8px;
+}
+.expiry-filter .small.active {
+	background: var(--primary);
+	border-color: var(--primary);
+	color: #fff;
+}
+/* 到期总览页：临期 / 状态异常条目行高亮 */
+.config-item.expiring {
+	border-left: 3px solid var(--warn);
+	background: rgba(217, 119, 6, 0.06);
 }

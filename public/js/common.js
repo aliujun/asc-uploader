@@ -135,6 +135,9 @@ export async function withLoading(button, loadingText, fn) {
   button.textContent = loadingText;
   try {
     await fn();
+  } catch (err) {
+    // 兜底：fn 内部未捕获的异常统一 toast，避免静默失败或 unhandled rejection
+    toast(err && err.message ? err.message : '操作失败', true);
   } finally {
     button.textContent = originalText;
     button.disabled = false;
@@ -222,6 +225,27 @@ export function enhanceSelect(select) {
 }
 
 /**
+ * 填充下拉框选项（重建 options；用 DOM 赋值自动免疫 XSS，重建后选中重置为占位项）
+ * @param {HTMLSelectElement} select 目标下拉框
+ * @param {string} placeholder 占位文案（value 为空串的首项）
+ * @param {Array<{value: string, label: string}>} items 选项列表
+ * @returns {void}
+ */
+export function fillSelect(select, placeholder, items) {
+  select.innerHTML = '';
+  const defaultOption = document.createElement('option');
+  defaultOption.value = '';
+  defaultOption.textContent = placeholder;
+  select.appendChild(defaultOption);
+  items.forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.value;
+    option.textContent = item.label;
+    select.appendChild(option);
+  });
+}
+
+/**
  * 为输入框绑定回车触发（textarea 不适用）
  * @param {string} inputId 输入框 ID
  * @param {() => void} handler 回车时执行的回调
@@ -293,6 +317,16 @@ export function typeLabel(type) {
     MAC_DISTRIBUTION_INHOUSE: 'Mac Distribution (InHouse)',
   };
   return map[type] || type || '未知类型';
+}
+
+/**
+ * ASC 平台标识 → 官网列表 PLATFORM 列原文（iOS / mac OS / All，不做中文转译）
+ * @param {string} platform 平台英文标识（IOS / MAC_OS / ALL，全平台证书可能为空串）
+ * @returns {string} 展示文案，未知时原样返回
+ */
+export function platformText(platform) {
+  const map = { IOS: 'iOS', MAC_OS: 'mac OS', ALL: 'All' };
+  return map[platform] || platform || '';
 }
 
 /**

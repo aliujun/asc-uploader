@@ -1,6 +1,6 @@
-/* 证书管理组件：ASC API 证书列表、签发（自动合成 p12 下载）、吊销、到期看板 */
+/* 证书管理组件：ASC API 证书列表、签发（自动合成 p12 下载）、吊销；到期监控统一在到期总览页 */
 import {
-  $, api, daysLeft, downloadFile, escapeHtml, expiryBadgeHtml, formatDate, toast, typeLabel, withLoading,
+  $, api, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, platformText, toast, typeLabel, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -18,8 +18,8 @@ const state = {
 /** 页面模板 */
 export const template = `<section id="tab-asc-certs" class="tab-panel">
             <div class="card">
-                <h2>证书列表与到期看板</h2>
-                <p class="muted">通过 ASC API 读取账号下的全部证书，临近到期自动标红/标黄，吊销也在这里操作。</p>
+                <h2>证书列表</h2>
+                <p class="muted">读取所选配置下的全部证书，签发与吊销在这里操作；到期情况可在「到期总览」页统一查看。</p>
                 <div class="form-row inline">
                     <select id="asc-cert-config">
                         <option value="">选择 ASC 配置</option>
@@ -27,7 +27,6 @@ export const template = `<section id="tab-asc-certs" class="tab-panel">
                     <button id="btn-asc-refresh">刷新</button>
                     <button id="btn-asc-issue-open" class="primary">签发证书</button>
                 </div>
-                <div id="asc-cert-stats" class="stats-bar hidden"></div>
                 <div id="asc-cert-list" class="config-list"></div>
             </div>
 
@@ -81,27 +80,6 @@ export const template = `<section id="tab-asc-certs" class="tab-panel">
         </section>`;
 
 /**
- * 通用下拉填充
- * @param {HTMLSelectElement} select 目标下拉框
- * @param {string} placeholder 占位文案
- * @param {Array<{value: string, label: string}>} items 选项列表
- * @returns {void}
- */
-function fillSelect(select, placeholder, items) {
-  select.innerHTML = '';
-  const defaultOption = document.createElement('option');
-  defaultOption.value = '';
-  defaultOption.textContent = placeholder;
-  select.appendChild(defaultOption);
-  items.forEach((item) => {
-    const option = document.createElement('option');
-    option.value = item.value;
-    option.textContent = item.label;
-    select.appendChild(option);
-  });
-}
-
-/**
  * 首次进入时加载 ASC 配置与本地私钥（供下拉选择）
  * @returns {Promise<void>}
  * @throws {Error} 接口请求失败时抛出
@@ -118,44 +96,31 @@ async function loadResources() {
 }
 
 /**
- * 渲染统计条与证书列表
+ * 渲染证书列表
  * @returns {void}
  */
 function renderCertList() {
-  const stats = $('asc-cert-stats');
   const wrap = $('asc-cert-list');
   const certs = state.certs;
   if (certs.length === 0) {
-    stats.classList.add('hidden');
-    stats.innerHTML = '';
     wrap.innerHTML = '<span class="muted">该配置下暂无证书</span>';
     return;
   }
-  const expiring30 = certs.filter((c) => daysLeft(c.expirationDate) !== null && daysLeft(c.expirationDate) <= 30).length;
-  const expiring60 = certs.filter((c) => daysLeft(c.expirationDate) !== null && daysLeft(c.expirationDate) <= 60).length;
-  stats.innerHTML = `
-                <div class="stat${expiring30 > 0 ? ' warn' : ''}">
-                    <span class="stat-num">${expiring30}</span>
-                    <span class="stat-label">30 天内到期</span>
-                </div>
-                <div class="stat${expiring60 > 30 ? ' warn' : ''}">
-                    <span class="stat-num">${expiring60}</span>
-                    <span class="stat-label">60 天内到期</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-num">${certs.length}</span>
-                    <span class="stat-label">证书总数</span>
-                </div>`;
-  stats.classList.remove('hidden');
 
   wrap.innerHTML = '';
   certs.forEach((cert) => {
     const row = document.createElement('div');
     row.className = 'config-item';
+    // 全平台类型（DISTRIBUTION/DEVELOPMENT）在 API 中不返回 platform 字段，按官网行为兜底显示「All」
+    const platformName = cert.platform
+      ? platformText(cert.platform)
+      : ((cert.certificateType === 'DISTRIBUTION' || cert.certificateType === 'DEVELOPMENT') ? 'All' : '');
+    const platformBadge = platformName ? `<span class="badge">${escapeHtml(platformName)}</span>` : '';
     row.innerHTML = `
       <div>
         <span class="name">${escapeHtml(cert.displayName || '未命名证书')}</span>
         <span class="badge">${escapeHtml(typeLabel(cert.certificateType))}</span>
+        ${platformBadge}
         ${expiryBadgeHtml(cert.expirationDate)}
         <div class="meta">序列号 ${escapeHtml(cert.serialNumber || '-')} · 到期 ${escapeHtml(formatDate(cert.expirationDate))}</div>
       </div>
@@ -179,8 +144,6 @@ async function loadCertList() {
     renderCertList();
   } catch (err) {
     state.certs = [];
-    $('asc-cert-stats').classList.add('hidden');
-    $('asc-cert-stats').innerHTML = '';
     wrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
   }
 }
@@ -367,12 +330,12 @@ export function init() {
     }
     loadCertList();
   });
-  $('btn-asc-refresh').addEventListener('click', () => {
+  $('btn-asc-refresh').addEventListener('click', (event) => {
     if (!state.configId) {
       toast('请先选择 ASC 配置', true);
       return;
     }
-    loadCertList();
+    withLoading(event.currentTarget, '刷新中...', loadCertList);
   });
   $('btn-asc-issue-open').addEventListener('click', () => {
     openIssueModal();

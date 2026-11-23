@@ -1,6 +1,6 @@
 /* 配置管理组件：网络代理设置、API 配置增删改验、配置表单弹窗 */
 import {
-  $, api, bindEnter, escapeHtml, fmtSize, toast, withLoading,
+  $, api, bindEnter, escapeHtml, fillSelect, fmtSize, toast, withLoading,
 } from './common.js';
 import { onConfigsChanged } from './upload.js';
 import { loadConnectivityInfo } from './connectivity.js';
@@ -21,6 +21,7 @@ export const template = `<section id="tab-configs" class="tab-panel">
                     <button id="btn-clear-proxy">清空代理</button>
                 </div>
                 <p class="muted">数据目录（配置、密钥、IPA 缓存均存放于此）：<code id="data-dir">-</code></p>
+                <p class="muted"><button id="btn-clear-ipa-cache" class="small">清理 IPA 缓存</button> <span class="muted">删除未被进行中任务引用的本地 IPA 缓存文件</span></p>
             </div>
             <div class="card">
                 <h2>配置列表 <button id="btn-new-config" class="small">新增配置</button></h2>
@@ -89,23 +90,17 @@ export const template = `<section id="tab-configs" class="tab-panel">
 const configState = { list: [], editingId: null };
 
 /**
- * 填充配置下拉框
+ * 填充配置下拉框（重建 options 后恢复之前选中的配置，避免配置列表刷新时选择被重置）
  * @param {HTMLSelectElement} select 下拉框
  * @param {string} placeholder 占位文案
  * @returns {void}
  */
 function fillConfigSelect(select, placeholder) {
-  select.innerHTML = '';
-  const defaultOption = document.createElement('option');
-  defaultOption.value = '';
-  defaultOption.textContent = placeholder;
-  select.appendChild(defaultOption);
-  configState.list.forEach((c) => {
-    const option = document.createElement('option');
-    option.value = c.id;
-    option.textContent = c.name;
-    select.appendChild(option);
-  });
+  const prevValue = select.value;
+  fillSelect(select, placeholder, configState.list.map((c) => ({ value: c.id, label: c.name })));
+  if (prevValue && configState.list.some((c) => c.id === prevValue)) {
+    select.value = prevValue;
+  }
 }
 
 /**
@@ -180,9 +175,13 @@ async function deleteConfig(config) {
   if (!confirm(`确定删除配置「${config.name}」吗？其 .p8 密钥文件将一并删除。`)) {
     return;
   }
-  await api(`/api/configs/${config.id}`, { method: 'DELETE' });
-  await loadConfigs();
-  toast('已删除');
+  try {
+    await api(`/api/configs/${config.id}`, { method: 'DELETE' });
+    await loadConfigs();
+    toast('已删除');
+  } catch (err) {
+    toast(err.message, true);
+  }
 }
 
 /**
@@ -279,12 +278,31 @@ export async function loadSettings() {
  * @returns {Promise<void>}
  */
 async function saveSettings() {
-  await api('/api/settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ proxyUrl: $('setting-proxy').value }),
-  });
-  toast('代理设置已保存');
+  try {
+    await api('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxyUrl: $('setting-proxy').value }),
+    });
+    toast('代理设置已保存');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+/**
+ * 清理未被进行中任务引用的 IPA 缓存
+ * @returns {Promise<void>}
+ */
+async function clearIpaCache() {
+  try {
+    const data = await api('/api/ipa/cache', { method: 'DELETE' });
+    toast(data.removedRegistry + data.removedFiles > 0
+      ? `已清理 ${data.removedRegistry} 个缓存记录、${data.removedFiles} 个遗留文件`
+      : '没有可清理的 IPA 缓存');
+  } catch (err) {
+    toast(err.message, true);
+  }
 }
 
 /**
@@ -344,11 +362,17 @@ export function init() {
   });
 
   $('btn-save-proxy').onclick = () => withLoading($('btn-save-proxy'), '保存中...', saveSettings);
+  $('btn-clear-ipa-cache').onclick = () => {
+    if (confirm('确定清理本地 IPA 缓存吗？进行中任务引用的文件会被保留。')) {
+      withLoading($('btn-clear-ipa-cache'), '清理中...', clearIpaCache);
+    }
+  };
   $('btn-detect-proxy').onclick = () => withLoading($('btn-detect-proxy'), '检测中...', detectProxy);
   $('btn-clear-proxy').onclick = () => withLoading($('btn-clear-proxy'), '清空中...', clearProxy);
 
-  bindEnter('cf-name', saveConfigForm);
-  bindEnter('cf-issuer', saveConfigForm);
-  bindEnter('cf-keyid', saveConfigForm);
-  bindEnter('setting-proxy', saveSettings);
+  // 回车提交统一走 withLoading：防止输入过程中连按回车造成重复提交
+  bindEnter('cf-name', () => withLoading($('cf-save'), '保存中...', saveConfigForm));
+  bindEnter('cf-issuer', () => withLoading($('cf-save'), '保存中...', saveConfigForm));
+  bindEnter('cf-keyid', () => withLoading($('cf-save'), '保存中...', saveConfigForm));
+  bindEnter('setting-proxy', () => withLoading($('btn-save-proxy'), '保存中...', saveSettings));
 }

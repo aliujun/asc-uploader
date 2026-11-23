@@ -3,6 +3,7 @@
 const express = require('express');
 const manager = require('../../tasks/task-manager');
 const provision = require('../../core/provision');
+const store = require('../../config/store');
 const { findIpa, removeIpa } = require('./ipa');
 
 const router = express.Router();
@@ -107,9 +108,8 @@ router.post('/', async (req, res) => {
     sendError(res, 400, '启用自动 TestFlight 分发时必须至少选择一个测试组');
     return;
   }
-  const store = require('../../config/store');
-  const config = await store.findById(body.configId);
-  if (!config) {
+  const storeConfig = await store.findById(body.configId);
+  if (!storeConfig) {
     sendError(res, 404, '配置不存在');
     return;
   }
@@ -120,7 +120,7 @@ router.post('/', async (req, res) => {
   }
   const task = manager.enqueue({
     configId: body.configId,
-    configName: config.name,
+    configName: storeConfig.name,
     ipaId: ipa.ipaId,
     filename: ipa.filename,
     sizeBytes: ipa.sizeBytes,
@@ -194,16 +194,14 @@ router.post('/:id/cancel', (req, res) => {
   res.json({ ok: true });
 });
 
-/** 不允许中断的阶段（文件已提交给 Apple，中断无法撤回） */
-const NON_ABORTABLE_STAGES = new Set(['COMMITTING', 'VALIDATING', 'WAITING_PROCESS', 'DISTRIBUTING']);
-
 /**
- * POST /api/tasks/:id/abort 中断任务（仅提交校验之前允许；排队中直接取消）
+ * POST /api/tasks/:id/abort 中断任务（仅提交校验之前允许；排队中直接取消）。
+ * 可中断阶段定义统一由 task-manager 的 ABORTABLE_STAGES 提供，路由不再维护重复名单
  * @returns {void}
  */
 router.post('/:id/abort', (req, res) => {
   const task = manager.findTask(req.params.id);
-  if (task && NON_ABORTABLE_STAGES.has(task.stage)) {
+  if (task && manager.isStageActive(task.stage) && !manager.isStageAbortable(task.stage)) {
     sendError(res, 400, '当前阶段文件已提交给 Apple，中断也无法撤回，请等待结果');
     return;
   }
@@ -249,7 +247,9 @@ router.delete('/:id', async (req, res) => {
     return;
   }
   try {
-    await manager.removeTask(task.id, (ipaId) => removeIpa(ipaId));
+    // 同一 IPA 可能被多个任务（重试产生的历史记录）引用，仅在没有其它任务引用时才删除缓存文件
+    const ipaInUse = manager.listTasks().some((t) => t.id !== task.id && t.ipaId === task.ipaId);
+    await manager.removeTask(task.id, ipaInUse ? null : (ipaId) => removeIpa(ipaId));
     res.json({ ok: true });
   } catch (err) {
     sendError(res, 500, err.message);

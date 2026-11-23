@@ -89,13 +89,26 @@ const ABORTABLE_STAGES = new Set([
   'PUSHING_CHUNKS',
 ]);
 
+/** SSE 断线重连的初始间隔（毫秒） */
+const SSE_RETRY_BASE_MS = 2000;
+
+/** SSE 断线重连的最大间隔（毫秒） */
+const SSE_RETRY_MAX_MS = 30000;
+
+/** SSE 断线重连的最大次数（超过后提示用户手动刷新） */
+const SSE_RETRY_MAX = 5;
+
 /** 上传页状态（configCount 由 configs 组件通过 onConfigsChanged 单点通知） */
 const uploadState = {
   file: null,
   ipaMeta: null,
   currentTaskId: null,
   eventSource: null,
+  sseTimer: null,
+  uploading: false,
   configCount: 0,
+  /** 各任务最近一次渲染的阶段（taskId → stage），用于判断"刚从进行中变为终态" */
+  lastStages: new Map(),
 };
 
 /** 标题闪烁定时器 */
@@ -152,6 +165,10 @@ function stopFlashTitle() {
  * @returns {void}
  */
 function pickIpaFile(file) {
+  if (uploadState.uploading) {
+    toast('当前有 IPA 正在上传，请等待完成后再选择新文件', true);
+    return;
+  }
   if (!file || !file.name.toLowerCase().endsWith('.ipa')) {
     toast('请选择 .ipa 文件', true);
     return;
@@ -170,6 +187,7 @@ function pickIpaFile(file) {
  */
 function startLocalUpload(file) {
   return new Promise((resolve) => {
+    uploadState.uploading = true;
     const xhr = new XMLHttpRequest();
     $('local-progress-wrap').classList.remove('hidden');
     xhr.open('PUT', `/api/ipa?filename=${encodeURIComponent(file.name)}`);
@@ -182,6 +200,7 @@ function startLocalUpload(file) {
       $('local-progress-text').textContent = `${percent}%`;
     };
     xhr.onload = async () => {
+      uploadState.uploading = false;
       if (xhr.status !== 200) {
         let message = `上传失败（HTTP ${xhr.status}）`;
         try {
@@ -191,7 +210,14 @@ function startLocalUpload(file) {
         resolve();
         return;
       }
-      const meta = JSON.parse(xhr.responseText);
+      let meta;
+      try {
+        meta = JSON.parse(xhr.responseText);
+      } catch {
+        toast('本地服务返回数据异常，请重新上传', true);
+        resolve();
+        return;
+      }
       uploadState.ipaMeta = meta;
       renderIpaMeta(meta);
       updateSubmitButton();
@@ -199,6 +225,7 @@ function startLocalUpload(file) {
       resolve();
     };
     xhr.onerror = () => {
+      uploadState.uploading = false;
       toast('本地服务上传失败，请确认服务正在运行', true);
       resolve();
     };
@@ -252,7 +279,7 @@ async function loadBetaGroups() {
     wrap.innerHTML = '';
     data.groups.forEach((g) => {
       const label = document.createElement('label');
-      label.innerHTML = `<input type="checkbox" value="${g.id}"> ${escapeHtml(g.name)}${g.isInternalGroup ? '（内部）' : ''}`;
+      label.innerHTML = `<input type="checkbox" value="${escapeHtml(g.id)}"> ${escapeHtml(g.name)}${g.isInternalGroup ? '（内部）' : ''}`;
       wrap.appendChild(label);
     });
   } catch (err) {
@@ -287,34 +314,92 @@ async function submitTask() {
     subscribeTask(task.id);
     toast('任务已提交');
     loadTaskHistory();
+    resetUploadSelection();
   } catch (err) {
     toast(err.message, true);
   }
 }
 
 /**
- * 订阅任务 SSE 并渲染进度
+ * 任务提交成功后重置文件选择状态：清空已选文件与本地传输进度，
+ * 防止对同一 IPA 重复建任务（Apple 会以 409 build 号冲突拒绝）
+ * @returns {void}
+ */
+function resetUploadSelection() {
+  uploadState.file = null;
+  uploadState.ipaMeta = null;
+  $('ipa-input').value = '';
+  $('ipa-meta').classList.add('hidden');
+  $('local-progress-wrap').classList.add('hidden');
+  $('local-progress-bar').style.width = '0%';
+  $('local-progress-text').textContent = '0%';
+  updateSubmitButton();
+}
+
+/**
+ * 订阅任务 SSE 并渲染进度（断线自动重连，指数退避）
  * @param {string} taskId 任务 ID
  * @returns {void}
  */
 function subscribeTask(taskId) {
-  if (uploadState.eventSource) {
-    uploadState.eventSource.close();
-  }
+  closeTaskEvents();
+  uploadState.currentTaskId = taskId;
+  connectTaskEvents(taskId, 0);
+}
+
+/**
+ * 建立 SSE 连接，断线后自动重连
+ * @param {string} taskId 任务 ID
+ * @param {number} attempt 当前重连次数
+ * @returns {void}
+ */
+function connectTaskEvents(taskId, attempt) {
   const source = new EventSource(`/api/tasks/${taskId}/events`);
   uploadState.eventSource = source;
-  uploadState.currentTaskId = taskId;
   source.onmessage = (event) => {
     renderTaskProgress(JSON.parse(event.data));
   };
   source.onerror = async () => {
-    // 断线后全量校准一次
     source.close();
+    // 已切换到其它任务时不再处理旧连接的错误
+    if (uploadState.currentTaskId !== taskId) {
+      return;
+    }
+    // 断线后全量校准一次；任务已结束则无需重连
+    let task = null;
     try {
-      const task = await api(`/api/tasks/${taskId}`);
+      task = await api(`/api/tasks/${taskId}`);
       renderTaskProgress(task);
     } catch { /* 服务可能已停止 */ }
+    if (task && !isStageActive(task.stage)) {
+      return;
+    }
+    if (attempt >= SSE_RETRY_MAX) {
+      toast('实时进度连接已断开，可点击「刷新」查看最新状态', true);
+      return;
+    }
+    const delay = Math.min(SSE_RETRY_MAX_MS, SSE_RETRY_BASE_MS * 2 ** attempt);
+    uploadState.sseTimer = setTimeout(() => {
+      if (uploadState.currentTaskId === taskId) {
+        connectTaskEvents(taskId, attempt + 1);
+      }
+    }, delay);
   };
+}
+
+/**
+ * 关闭 SSE 连接与待触发的重连定时器
+ * @returns {void}
+ */
+function closeTaskEvents() {
+  if (uploadState.sseTimer) {
+    clearTimeout(uploadState.sseTimer);
+    uploadState.sseTimer = null;
+  }
+  if (uploadState.eventSource) {
+    uploadState.eventSource.close();
+    uploadState.eventSource = null;
+  }
 }
 
 /**
@@ -339,14 +424,26 @@ function renderTaskProgress(task) {
       ${task.buildId ? ` · buildId: ${escapeHtml(task.buildId)}` : ''}</div>
     <div class="log">${logLines}</div>
     <div style="margin-top:8px;">
-      ${ABORTABLE_STAGES.has(task.stage) ? `<button class="small danger" onclick="abortTask('${task.id}')">中断上传</button>` : ''}
-      ${(task.stage === 'FAILED' || task.stage === 'CANCELLED') && task.ipaAvailable ? `<button class="small" onclick="retryTask('${task.id}')">重试</button>` : ''}
+      ${ABORTABLE_STAGES.has(task.stage) ? `<button class="small danger" data-abort="${task.id}">中断上传</button>` : ''}
+      ${(task.stage === 'FAILED' || task.stage === 'CANCELLED') && task.ipaAvailable ? `<button class="small" data-retry="${task.id}">重试</button>` : ''}
     </div>`;
+  // 按钮事件渲染后绑定（替代旧的内联 onclick + window 全局函数）
+  wrap.querySelectorAll('[data-abort]').forEach((btn) => {
+    btn.onclick = () => abortTask(btn.dataset.abort);
+  });
+  wrap.querySelectorAll('[data-retry]').forEach((btn) => {
+    btn.onclick = () => withLoading(btn, '重试中...', () => retryTask(btn.dataset.retry));
+  });
   const logEl = wrap.querySelector('.log');
   if (logEl) {
     logEl.scrollTop = logEl.scrollHeight;
   }
-  if (task.stage === 'DONE' || task.stage === 'FAILED' || task.stage === 'CANCELLED') {
+  // 仅当任务"刚从进行中变为终态"时闪烁标题并刷新历史列表；
+  // 回看（订阅）已结束的历史任务不算新完成，不闪烁
+  const prevStage = uploadState.lastStages.get(task.id);
+  const becameFinal = Boolean(prevStage) && isStageActive(prevStage) && !isStageActive(task.stage);
+  uploadState.lastStages.set(task.id, task.stage);
+  if (becameFinal) {
     flashTitle(task.stage === 'DONE' ? '上传完成' : task.stage === 'CANCELLED' ? '已中断' : '上传失败');
     loadTaskHistory();
   }
@@ -370,6 +467,7 @@ export async function loadTaskHistory() {
         <td><span class="stage-badge ${escapeHtml(t.stage)}">${escapeHtml(stageText(t.stage))}</span></td>
         <td>${new Date(t.createdAt).toLocaleString()}</td>
         <td>
+          <button class="small" data-view="${t.id}">查看</button>
           ${(t.stage === 'FAILED' || t.stage === 'CANCELLED') && t.ipaAvailable ? `<button class="small" data-retry="${t.id}">重试</button>` : ''}
           ${isStageActive(t.stage) ? '' : `<button class="small danger" data-remove="${t.id}" data-name="${escapeHtml(t.filename || '')}">删除</button>`}
         </td>
@@ -379,22 +477,27 @@ export async function loadTaskHistory() {
         <thead><tr><th>文件</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
+    wrap.querySelectorAll('[data-view]').forEach((btn) => {
+      btn.onclick = () => subscribeTask(btn.dataset.view);
+    });
     wrap.querySelectorAll('[data-retry]').forEach((btn) => {
-      btn.onclick = () => retryTask(btn.dataset.retry);
+      btn.onclick = () => withLoading(btn, '重试中...', () => retryTask(btn.dataset.retry));
     });
     wrap.querySelectorAll('[data-remove]').forEach((btn) => {
-      btn.onclick = async () => {
+      btn.onclick = (event) => {
         const name = btn.dataset.name || '该任务';
         if (!confirm(`确定删除任务「${name}」吗？其本地 IPA 缓存将一并删除。`)) {
           return;
         }
-        try {
-          await api(`/api/tasks/${btn.dataset.remove}`, { method: 'DELETE' });
-          toast('任务记录已删除');
-          await loadTaskHistory();
-        } catch (err) {
-          toast(err.message, true);
-        }
+        withLoading(event.currentTarget, '删除中...', async () => {
+          try {
+            await api(`/api/tasks/${btn.dataset.remove}`, { method: 'DELETE' });
+            toast('任务记录已删除');
+            await loadTaskHistory();
+          } catch (err) {
+            toast(err.message, true);
+          }
+        });
       };
     });
   } catch (err) {
@@ -403,7 +506,7 @@ export async function loadTaskHistory() {
 }
 
 /**
- * 重试任务（挂载到 window 供进度面板内联 onclick 调用）
+ * 重试任务（重新入队并在进度面板实时跟踪）
  * @param {string} taskId 任务 ID
  * @returns {Promise<void>}
  */
@@ -420,7 +523,7 @@ async function retryTask(taskId) {
 }
 
 /**
- * 中断进行中的上传任务（确认弹窗说明 Apple 侧语义；挂载到 window 供内联 onclick 调用）
+ * 中断进行中的上传任务（确认弹窗说明 Apple 侧语义）
  * @param {string} taskId 任务 ID
  * @returns {Promise<void>}
  */
@@ -443,11 +546,18 @@ async function abortTask(taskId) {
 }
 
 /**
- * 同步"提交上传任务"按钮状态：既有可用配置、又已上传 IPA 才可点击
+ * 同步"提交上传任务"按钮状态：有可用配置、已上传 IPA 且解析到 bundleId 才可点击。
+ * bundleId 缺失时任务必然失败（后端无法定位 App），提前拦截并给出原因
  * @returns {void}
  */
 function updateSubmitButton() {
-  $('submit-task').disabled = uploadState.configCount === 0 || !uploadState.ipaMeta;
+  const meta = uploadState.ipaMeta;
+  const missingBundleId = Boolean(meta && !meta.bundleId);
+  const button = $('submit-task');
+  button.disabled = uploadState.configCount === 0 || !meta || missingBundleId;
+  button.title = missingBundleId
+    ? 'IPA 未解析到 bundleId，无法提交：请确认文件是有效的 .ipa 签名包'
+    : '';
 }
 
 /**
@@ -497,11 +607,7 @@ export function init() {
   $('auto-testflight').addEventListener('change', loadBetaGroups);
   $('upload-config').addEventListener('change', loadBetaGroups);
   $('submit-task').onclick = () => withLoading($('submit-task'), '提交中...', submitTask);
-  $('btn-refresh-history').onclick = () => loadTaskHistory();
-
-  // 进度面板模板中的内联 onclick 依赖 window 全局函数
-  window.retryTask = retryTask;
-  window.abortTask = abortTask;
+  $('btn-refresh-history').onclick = () => withLoading($('btn-refresh-history'), '刷新中...', loadTaskHistory);
 
   // 任务结束时标题闪烁，窗口回焦自动停止
   window.addEventListener('focus', stopFlashTitle);

@@ -1,10 +1,13 @@
 /* 描述文件组件：Profiles 列表、到期看板、下载 .mobileprovision、删除、生成 App Store / Ad Hoc / 开发描述文件 */
 import {
-  $, api, daysLeft, downloadFile, escapeHtml, expiryBadgeHtml, formatDate, toast, typeLabel, withLoading,
+  $, api, daysLeft, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, toast, typeLabel, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '描述文件';
+
+/** 描述文件列表加载请求序号（防竞态） */
+let profileReqSeq = 0;
 
 /** 组件状态：configs 供配置下拉，bundleIds/certs/devices 供生成弹窗，profiles 为当前列表 */
 const state = {
@@ -124,27 +127,6 @@ function certEnvLabel(type) {
 }
 
 /**
- * 通用下拉填充
- * @param {HTMLSelectElement} select 目标下拉框
- * @param {string} placeholder 占位文案
- * @param {Array<{value: string, label: string}>} items 选项列表
- * @returns {void}
- */
-function fillSelect(select, placeholder, items) {
-  select.innerHTML = '';
-  const defaultOption = document.createElement('option');
-  defaultOption.value = '';
-  defaultOption.textContent = placeholder;
-  select.appendChild(defaultOption);
-  items.forEach((item) => {
-    const option = document.createElement('option');
-    option.value = item.value;
-    option.textContent = item.label;
-    select.appendChild(option);
-  });
-}
-
-/**
  * 描述文件类型对应的名称默认后缀
  * @param {string} profileType 描述文件类型枚举
  * @returns {string} 后缀文案
@@ -251,7 +233,7 @@ function renderProfileList() {
         <button class="small" data-act="download">下载</button>
         <button class="small danger" data-act="delete">删除</button>
       </div>`;
-    row.querySelector('[data-act="download"]').onclick = () => downloadProfile(profile);
+    row.querySelector('[data-act="download"]').onclick = (event) => withLoading(event.currentTarget, '下载中...', () => downloadProfile(profile));
     row.querySelector('[data-act="delete"]').onclick = (event) => {
       const label = profile.name || profile.id;
       const goOn = confirm(`确定删除描述文件「${label}」（${profile.bundleId || '-'}）？\n`
@@ -271,11 +253,19 @@ function renderProfileList() {
  */
 async function loadProfileList() {
   const wrap = $('profile-list');
+  // 请求序号守卫：快速切换配置时丢弃过期响应
+  const seq = ++profileReqSeq;
   try {
     const data = await api(`/api/profiles?configId=${encodeURIComponent(state.configId)}`);
+    if (seq !== profileReqSeq) {
+      return;
+    }
     state.profiles = data.profiles || [];
     renderProfileList();
   } catch (err) {
+    if (seq !== profileReqSeq) {
+      return;
+    }
     state.profiles = [];
     $('profile-stats').classList.add('hidden');
     $('profile-stats').innerHTML = '';
@@ -504,12 +494,12 @@ export function init() {
     }
     loadProfileList();
   });
-  $('btn-profile-refresh').addEventListener('click', () => {
+  $('btn-profile-refresh').addEventListener('click', (event) => {
     if (!state.configId) {
       toast('请先选择 ASC 配置', true);
       return;
     }
-    loadProfileList();
+    withLoading(event.currentTarget, '刷新中...', loadProfileList);
   });
   $('btn-profile-create-open').addEventListener('click', () => {
     openCreateModal();

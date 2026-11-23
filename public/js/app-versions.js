@@ -1,5 +1,5 @@
 /* App Store 版本与审核状态组件：按配置/App 查看版本审核全流程状态 */
-import { $, api, escapeHtml, toast, formatDate } from './common.js';
+import { $, api, escapeHtml, fillSelect, toast, formatDate, withLoading } from './common.js';
 
 export const title = '版本审核';
 
@@ -35,6 +35,12 @@ const APP_STORE_STATE_CLS = {
   DEVELOPER_REJECTED: 'err',
 };
 
+/** App 列表加载请求序号（防竞态） */
+let appsReqSeq = 0;
+
+/** 版本列表加载请求序号（防竞态） */
+let versionsReqSeq = 0;
+
 /** 组件内部状态：配置/App/版本列表与当前选中项 */
 const state = {
   configs: [],
@@ -67,18 +73,6 @@ export const template = `<section id="tab-app-versions" class="tab-panel">
         </ol>
     </div>
 </section>`;
-
-/**
- * 通用下拉填充（保持 placeholder 首项）
- * @param {HTMLSelectElement} select 下拉元素
- * @param {string} placeholder 占位文案
- * @param {Array<{value: string, label: string}>} items 选项
- * @returns {void}
- */
-function fillSelect(select, placeholder, items) {
-  select.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>`
-    + items.map((i) => `<option value="${escapeHtml(i.value)}">${escapeHtml(i.label)}</option>`).join('');
-}
 
 /**
  * 状态徽章 HTML（未知状态原样显示文本、默认灰底）
@@ -116,7 +110,12 @@ async function loadApps() {
     fillSelect($('av-app'), '选择 App', []);
     return;
   }
+  // 请求序号守卫：快速切换配置时丢弃过期响应
+  const seq = ++appsReqSeq;
   const data = await api(`/api/apps?configId=${encodeURIComponent(state.configId)}`);
+  if (seq !== appsReqSeq) {
+    return;
+  }
   state.apps = data.apps || [];
   fillSelect($('av-app'), '选择 App', state.apps.map((a) => ({ value: a.id, label: a.name })));
   // 默认选中第一个 App，直接展示版本列表
@@ -138,7 +137,12 @@ async function loadVersions() {
     renderVersionList();
     return;
   }
+  // 请求序号守卫：快速切换 App 时丢弃过期响应
+  const seq = ++versionsReqSeq;
   const data = await api(`/api/app-versions?configId=${encodeURIComponent(state.configId)}&appId=${encodeURIComponent(state.appId)}`);
+  if (seq !== versionsReqSeq) {
+    return;
+  }
   state.versions = data.versions || [];
   renderVersionList();
 }
@@ -234,21 +238,23 @@ export function init() {
       toast(`获取版本列表失败：${err.message}`, true);
     }
   });
-  $('btn-av-refresh').addEventListener('click', async () => {
+  $('btn-av-refresh').addEventListener('click', (event) => {
     if (!state.configId) {
       toast('请先选择 ASC 配置', true);
       return;
     }
-    try {
-      if (state.apps.length === 0) {
-        await loadApps();
-      } else {
-        await loadVersions();
+    withLoading(event.currentTarget, '刷新中...', async () => {
+      try {
+        if (state.apps.length === 0) {
+          await loadApps();
+        } else {
+          await loadVersions();
+        }
+        toast('已刷新');
+      } catch (err) {
+        toast(`刷新失败：${err.message}`, true);
       }
-      toast('已刷新');
-    } catch (err) {
-      toast(`刷新失败：${err.message}`, true);
-    }
+    });
   });
 }
 

@@ -27,6 +27,11 @@ function createApp() {
   app.use('/api/app-versions', require('./routes/app-versions'));
   app.use('/api/version', require('./routes/version').router);
 
+  // 未知 API 路径兜底：返回 JSON 404，避免前端 api() 把 HTML 错误页当 JSON 解析报错
+  app.use('/api', (req, res) => {
+    res.status(404).json({ error: `接口不存在：${req.method} ${req.originalUrl}` });
+  });
+
   // JSON 解析错误兜底
   app.use((err, req, res, next) => {
     if (res.headersSent) {
