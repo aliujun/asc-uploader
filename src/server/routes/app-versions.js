@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { createClient, parsePaging } = require('../../core/asc-client');
+const { createClient, parsePaging, extractNextCursor } = require('../../core/asc-client');
 
 const router = express.Router();
 
@@ -31,8 +31,8 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const { limit, offset } = parsePaging(req.query, 50);
-    const data = await createClient(configId).listAppStoreVersions(appId, limit, offset);
+    const { limit, cursor } = parsePaging(req.query, 50);
+    const data = await createClient(configId).listAppStoreVersions(appId, limit, cursor);
     const versions = (data.data || []).map((item) => {
       const attributes = item.attributes || {};
       return {
@@ -45,7 +45,7 @@ router.get('/', async (req, res) => {
     });
     // 按创建时间倒序（最新版本在前）
     versions.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
-    res.json({ versions });
+    res.json({ versions, nextCursor: extractNextCursor(data) });
   } catch (err) {
     sendError(res, 502, err.message);
   }

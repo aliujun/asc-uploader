@@ -194,8 +194,9 @@ class AscClient {
       console.log(`${c.cyan('[ASC]')} ${c.gray(`${method} ${path}`)}${body ? c.gray(` 请求体：${body.slice(0, 500)}`) : ''}`);
       const startedAt = Date.now();
       let response;
+      const requestUrl = path.startsWith('http') ? path : `${API_BASE}${path}`;
       try {
-        response = await doFetch(`${API_BASE}${path}`, { method, headers, body, signal: opts.signal || this.signal });
+        response = await doFetch(requestUrl, { method, headers, body, signal: opts.signal || this.signal });
       } catch (err) {
         if (err && (err.name === 'AbortError' || err.code === 'ABORT_ERR')) {
           const abortErr = new Error('任务已中断');
@@ -256,45 +257,85 @@ class AscClient {
   }
 
   /**
-   * 获取 app 列表
+   * 自动沿着 links.next 抓取并合并多页数据（利用 Apple 官方游标）
+   * @param {string} initialPath 初始相对路径或绝对 URL
+   * @param {number} [maxPages=15] 安全拉取最大页数保护
+   * @returns {Promise<{data: Array<Object>, included?: Array<Object>}>} 聚合后的完整响应数据
+   */
+  async requestAll(initialPath, maxPages = 15) {
+    let nextUrl = initialPath;
+    let pageCount = 0;
+    const allData = [];
+    const allIncluded = [];
+
+    while (nextUrl && pageCount < maxPages) {
+      pageCount += 1;
+      const res = await this.request('GET', nextUrl);
+      if (!res) {
+        break;
+      }
+      if (Array.isArray(res.data)) {
+        allData.push(...res.data);
+      }
+      if (Array.isArray(res.included)) {
+        allIncluded.push(...res.included);
+      }
+      const next = res.links && res.links.next;
+      if (!next) {
+        break;
+      }
+      nextUrl = next;
+    }
+
+    return { data: allData, included: allIncluded };
+  }
+
+  /**
+   * 获取 app 列表（默认自动聚合全部分页）
    * @param {number} [limit=200] 单页数量上限
-   * @param {number} [offset=0] 起始偏移（分页用）
+   * @param {string} [cursor=''] 指定游标，不传且无 cursor 时自动拉取全量
    * @returns {Promise<Object>} ASC apps 响应
    */
-  async listApps(limit = 200, offset = 0) {
-    return this.request('GET', `/v1/apps?${pagingQuery(limit, offset)}`);
+  async listApps(limit = 200, cursor = '') {
+    if (cursor) {
+      return this.request('GET', `/v1/apps?${pagingQuery(limit, cursor)}`);
+    }
+    return this.requestAll(`/v1/apps?limit=${Math.min(limit, 200)}`);
   }
 
   /**
    * 获取指定 app 的 build 列表（按上传时间倒序，附带 preReleaseVersion 用于取短版本号）
    * @param {string} appId app ID
    * @param {number} [limit=50] 单页数量上限
-   * @param {number} [offset=0] 起始偏移（分页用）
+   * @param {string} [cursor=''] 游标
    * @returns {Promise<Object>} ASC builds 响应
    */
-  async listBuilds(appId, limit = 50, offset = 0) {
-    return this.request('GET', `/v1/builds?filter[app]=${appId}&${pagingQuery(limit, offset)}&sort=-uploadedDate&include=preReleaseVersion`);
+  async listBuilds(appId, limit = 50, cursor = '') {
+    return this.request('GET', `/v1/builds?filter[app]=${appId}&${pagingQuery(limit, cursor)}&sort=-uploadedDate&include=preReleaseVersion`);
   }
 
   /**
    * 获取指定 app 的 App Store 版本列表（含审核状态 appStoreState）
    * @param {string} appId app ID
    * @param {number} [limit=50] 单页数量上限
-   * @param {number} [offset=0] 起始偏移（分页用）
+   * @param {string} [cursor=''] 游标
    * @returns {Promise<Object>} ASC appStoreVersions 响应
    */
-  async listAppStoreVersions(appId, limit = 50, offset = 0) {
-    return this.request('GET', `/v1/apps/${appId}/appStoreVersions?${pagingQuery(limit, offset)}`);
+  async listAppStoreVersions(appId, limit = 50, cursor = '') {
+    return this.request('GET', `/v1/apps/${appId}/appStoreVersions?${pagingQuery(limit, cursor)}`);
   }
 
   /**
-   * 获取 beta 测试组列表
+   * 获取 beta 测试组列表（默认自动聚合全部）
    * @param {number} [limit=200] 单页数量上限
-   * @param {number} [offset=0] 起始偏移（分页用）
+   * @param {string} [cursor=''] 游标
    * @returns {Promise<Object>} ASC betaGroups 响应
    */
-  async listBetaGroups(limit = 200, offset = 0) {
-    return this.request('GET', `/v1/betaGroups?${pagingQuery(limit, offset)}`);
+  async listBetaGroups(limit = 200, cursor = '') {
+    if (cursor) {
+      return this.request('GET', `/v1/betaGroups?${pagingQuery(limit, cursor)}`);
+    }
+    return this.requestAll(`/v1/betaGroups?limit=${Math.min(limit, 200)}`);
   }
 
   /**
@@ -378,12 +419,16 @@ class AscClient {
   }
 
   /**
-   * 获取证书列表
-   * @param {number} [limit=100] 单页数量上限
+   * 获取证书列表（默认自动聚合全部）
+   * @param {number} [limit=200] 单页数量上限
+   * @param {string} [cursor=''] 游标
    * @returns {Promise<Object>} ASC certificates 响应
    */
-  async listCertificates(limit = 100, offset = 0) {
-    return this.request('GET', `/v1/certificates?${pagingQuery(limit, offset)}`);
+  async listCertificates(limit = 200, cursor = '') {
+    if (cursor) {
+      return this.request('GET', `/v1/certificates?${pagingQuery(limit, cursor)}`);
+    }
+    return this.requestAll(`/v1/certificates?limit=${Math.min(limit, 200)}`);
   }
 
   /**
@@ -412,21 +457,29 @@ class AscClient {
   }
 
   /**
-   * 获取描述文件列表（关联 App ID 与证书用于展示）
+   * 获取描述文件列表（默认自动聚合全部，关联 App ID 与证书用于展示）
    * @param {number} [limit=200] 单页数量上限
+   * @param {string} [cursor=''] 游标
    * @returns {Promise<Object>} ASC profiles 响应（data + included 关联数据）
    */
-  async listProfiles(limit = 200, offset = 0) {
-    return this.request('GET', `/v1/profiles?${pagingQuery(limit, offset)}&include=bundleId,certificates`);
+  async listProfiles(limit = 200, cursor = '') {
+    if (cursor) {
+      return this.request('GET', `/v1/profiles?${pagingQuery(limit, cursor)}&include=bundleId,certificates`);
+    }
+    return this.requestAll(`/v1/profiles?limit=${Math.min(limit, 200)}&include=bundleId,certificates`);
   }
 
   /**
-   * 获取 App ID（Bundle ID）列表
+   * 获取 App ID（Bundle ID）列表（默认自动聚合全部）
    * @param {number} [limit=200] 单页数量上限
+   * @param {string} [cursor=''] 游标
    * @returns {Promise<Object>} ASC bundleIds 响应
    */
-  async listBundleIds(limit = 200, offset = 0) {
-    return this.request('GET', `/v1/bundleIds?${pagingQuery(limit, offset)}`);
+  async listBundleIds(limit = 200, cursor = '') {
+    if (cursor) {
+      return this.request('GET', `/v1/bundleIds?${pagingQuery(limit, cursor)}`);
+    }
+    return this.requestAll(`/v1/bundleIds?limit=${Math.min(limit, 200)}`);
   }
 
   /**
@@ -482,12 +535,16 @@ class AscClient {
   }
 
   /**
-   * 获取注册到团队的设备列表
+   * 获取注册到团队的设备列表（默认自动聚合全部）
    * @param {number} [limit=200] 单页数量上限（API 最大 200）
+   * @param {string} [cursor=''] 游标
    * @returns {Promise<Object>} ASC devices 响应
    */
-  async listDevices(limit = 200, offset = 0) {
-    return this.request('GET', `/v1/devices?${pagingQuery(limit, offset)}`);
+  async listDevices(limit = 200, cursor = '') {
+    if (cursor) {
+      return this.request('GET', `/v1/devices?${pagingQuery(limit, cursor)}`);
+    }
+    return this.requestAll(`/v1/devices?limit=${Math.min(limit, 200)}`);
   }
 
   /**
@@ -548,27 +605,48 @@ function sleep(ms) {
 }
 
 /**
- * 构造分页 query 参数（offset 为 0 时不拼接，保持与旧行为一致）
+ * 构造分页 query 参数（符合 Apple 官方规范：支持 limit 与 cursor）
  * @param {number} limit 单页数量上限
- * @param {number} offset 起始偏移
+ * @param {string} [cursor=''] 游标
  * @returns {string} query 片段（不含开头的 ?）
  */
-function pagingQuery(limit, offset) {
-  return offset > 0 ? `limit=${limit}&offset=${offset}` : `limit=${limit}`;
+function pagingQuery(limit, cursor = '') {
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  if (!cursor) {
+    return `limit=${safeLimit}`;
+  }
+  return `limit=${safeLimit}&cursor=${encodeURIComponent(cursor)}`;
 }
 
 /**
- * 解析列表接口的分页参数（query 中 page/limit 可选，默认值由调用方传入）
+ * 解析列表接口的分页参数（query 中 cursor/limit 可选）
  * @param {Object} query express 的 req.query 对象
  * @param {number} defaultLimit 默认单页数量上限
- * @returns {{limit: number, offset: number}} 分页参数
+ * @returns {{limit: number, cursor: string}} 分页参数
  */
 function parsePaging(query, defaultLimit) {
   const limitRaw = Number.parseInt(query && query.limit, 10);
-  const pageRaw = Number.parseInt(query && query.page, 10);
   const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : defaultLimit;
-  const page = Number.isFinite(pageRaw) && pageRaw > 1 ? pageRaw : 1;
-  return { limit, offset: (page - 1) * limit };
+  const cursor = (query && typeof query.cursor === 'string') ? query.cursor.trim() : '';
+  return { limit, cursor };
+}
+
+/**
+ * 从 Apple API 响应的 links.next 或直接 URL 中提取 cursor 字符串
+ * @param {Object|string} data Apple API 响应对象或直接的 URL 字符串
+ * @returns {string|null} cursor 字符串，无下一页时返回 null
+ */
+function extractNextCursor(data) {
+  const next = typeof data === 'string' ? data : (data && data.links && data.links.next);
+  if (!next) {
+    return null;
+  }
+  try {
+    const parsedUrl = new URL(next);
+    return parsedUrl.searchParams.get('cursor') || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -581,4 +659,13 @@ function createClient(configId, signal) {
   return new AscClient(configId, signal);
 }
 
-module.exports = { createClient, AscClient, API_BASE, doFetch, resolveActiveProxyUrl, parsePaging };
+module.exports = {
+  createClient,
+  AscClient,
+  API_BASE,
+  doFetch,
+  resolveActiveProxyUrl,
+  pagingQuery,
+  parsePaging,
+  extractNextCursor,
+};

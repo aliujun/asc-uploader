@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { createClient, parsePaging } = require('../../core/asc-client');
+const { createClient, parsePaging, extractNextCursor } = require('../../core/asc-client');
 const c = require('../../core/term');
 
 const router = express.Router();
@@ -17,7 +17,7 @@ function resolveConfigId(req) {
 }
 
 /**
- * GET /api/apps?configId=xx 获取 app 列表
+ * GET /api/apps?configId=xx 获取 app 列表（自动聚合全部分页）
  * @returns {void}
  */
 router.get('/', async (req, res) => {
@@ -27,8 +27,7 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const { limit, offset } = parsePaging(req.query, 200);
-    const data = await createClient(configId).listApps(limit, offset);
+    const data = await createClient(configId).listApps();
     const apps = (data.data || []).map((app) => ({
       id: app.id,
       name: app.attributes.name,
@@ -42,7 +41,7 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * GET /api/apps/:id/builds?configId=xx 获取 build 列表
+ * GET /api/apps/:id/builds?configId=xx&limit=&cursor= 获取 build 列表
  * @returns {void}
  */
 router.get('/:id/builds', async (req, res) => {
@@ -52,8 +51,8 @@ router.get('/:id/builds', async (req, res) => {
     return;
   }
   try {
-    const { limit, offset } = parsePaging(req.query, 50);
-    const data = await createClient(configId).listBuilds(req.params.id, limit, offset);
+    const { limit, cursor } = parsePaging(req.query, 50);
+    const data = await createClient(configId).listBuilds(req.params.id, limit, cursor);
     // 短版本号（CFBundleShortVersionString）不在 builds 资源上，需从 included 的 preReleaseVersion 中取
     const preReleaseVersions = {};
     (data.included || []).forEach((inc) => {
@@ -76,7 +75,7 @@ router.get('/:id/builds', async (req, res) => {
       };
     });
     console.log(`${c.cyan('[Build列表]')} appId=${req.params.id} ${c.green(`获取成功，共 ${builds.length} 条`)}`);
-    res.json({ builds });
+    res.json({ builds, nextCursor: extractNextCursor(data) });
   } catch (err) {
     console.error(`${c.cyan('[Build列表]')} appId=${req.params.id} ${c.red(`获取失败：${err.message}`)}`);
     res.status(502).json({ error: err.message });

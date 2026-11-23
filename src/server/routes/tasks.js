@@ -45,11 +45,14 @@ function validateIpaProfile(ipa) {
   if (profile.expirationDate) {
     const left = Math.ceil((new Date(profile.expirationDate).getTime() - Date.now()) / 86400000);
     if (Number.isFinite(left) && left < 0) {
-      return `IPA 内描述文件「${profile.name || '未命名'}」已于 ${formatDate(profile.expirationDate)} 过期，上传会被 Apple 拒绝，请重新打包后再上传`;
+      return `IPA 内描述文件「${profile.name || '未命名'}」已于 ${formatDate(profile.expirationDate)} 过期，上传大概率会被 Apple 拒绝`;
     }
   }
   if (profile.type === 'IOS_APP_DEVELOPMENT') {
-    return 'IPA 使用开发签名的描述文件，无法上传 TestFlight / App Store，请用发布证书重新打包';
+    return 'IPA 使用开发签名的描述文件，无法用于 TestFlight / App Store 发布，建议改用发布证书打包';
+  }
+  if (profile.type === 'IOS_APP_ADHOC') {
+    return 'IPA 使用 Ad Hoc 签名的描述文件，非 App Store 发布专用，上传可能会被 Apple 拒绝';
   }
   if (profile.bundleId && ipa.bundleId && !matchBundleId(profile.bundleId, ipa.bundleId)) {
     return `IPA bundleId（${ipa.bundleId}）与描述文件签名的 App ID（${profile.bundleId}）不匹配，请确认打包配置`;
@@ -114,10 +117,11 @@ router.post('/', async (req, res) => {
     return;
   }
   const profileError = validateIpaProfile(ipa);
-  if (profileError) {
-    sendError(res, 400, profileError);
+  if (profileError && !body.ignorePrecheckWarning) {
+    res.status(400).json({ error: profileError, isPrecheckWarning: true });
     return;
   }
+  const precheckSummary = ipa.profile ? buildPrecheckSummary(ipa.profile) : '';
   const task = manager.enqueue({
     configId: body.configId,
     configName: storeConfig.name,
@@ -129,7 +133,7 @@ router.post('/', async (req, res) => {
     buildVersion: ipa.buildVersion,
     autoTestflight,
     betaGroupIds,
-    precheckSummary: ipa.profile ? buildPrecheckSummary(ipa.profile) : '',
+    precheckSummary: profileError ? `${precheckSummary}（已忽略警告：${profileError}）` : precheckSummary,
   });
   res.json(manager.toView(task));
 });

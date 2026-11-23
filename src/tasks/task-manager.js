@@ -25,8 +25,9 @@ const subscribers = new Map();
 /** 当前是否已有任务在执行 */
 let running = false;
 
-/** 任务文件读写互斥锁（避免并发写坏 tasks.json） */
-let persistChain = Promise.resolve();
+/** 任务文件读写互斥状态 */
+let isPersisting = false;
+let hasPendingPersist = false;
 
 /**
  * 任务运行期允许的 stage 集合
@@ -107,7 +108,7 @@ async function loadTasks() {
     for (const item of list) {
       if (ACTIVE_STAGES.has(item.stage)) {
         item.stage = 'FAILED';
-        item.message = '服务重启导致任务中断（本地 IPA 缓存已随重启清理，请重新上传 IPA 创建新任务）';
+        item.message = '服务重启导致任务中断（若本地 IPA 缓存仍保留可点击重试）';
         addLog(item, '服务重启，任务中断');
       }
       tasks.push(item);
@@ -123,20 +124,28 @@ async function loadTasks() {
 const PERSIST_TASK_LIMIT = 100;
 
 /**
- * 持久化任务到 tasks.json（串行化写，避免并发损坏）。
- * 写入失败只记日志不向外抛，避免未处理的 rejection 毒化 persistChain 导致后续持久化全部失效。
- * @returns {Promise<void>} 持久化完成（或失败已被吞掉）后 resolve
+ * 持久化任务到 tasks.json（串行化写，避免并发损坏）
+ * @returns {Promise<void>}
  */
-function persist() {
-  const next = persistChain.then(async () => {
+async function persist() {
+  if (isPersisting) {
+    hasPendingPersist = true;
+    return;
+  }
+  isPersisting = true;
+  try {
     await ensureDirs();
     const body = JSON.stringify({ tasks: tasks.slice(0, PERSIST_TASK_LIMIT).map(toView) }, null, 2);
     await fs.writeFile(tasksFile(), body, 'utf8');
-  });
-  persistChain = next.catch((err) => {
+  } catch (err) {
     console.error(`${c.red('[任务]')} tasks.json 持久化失败：${err.message}`);
-  });
-  return persistChain;
+  } finally {
+    isPersisting = false;
+    if (hasPendingPersist) {
+      hasPendingPersist = false;
+      await persist();
+    }
+  }
 }
 
 /**

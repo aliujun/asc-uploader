@@ -5,7 +5,7 @@ const { exec } = require('child_process');
 const http = require('http');
 const { createApp } = require('./server/app');
 const { loadTasks } = require('./tasks/task-manager');
-const { sweepOrphanIpas } = require('./server/routes/ipa');
+const { initIpaRegistry, sweepOrphanIpas } = require('./server/routes/ipa');
 const term = require('./core/term');
 const { getDir } = require('./config/paths');
 const { version } = require('../package.json');
@@ -116,6 +116,8 @@ function printBanner(url) {
  */
 async function main() {
 	const opts = parseArgs(process.argv.slice(2));
+	// 启动时先恢复本地未清理的 IPA 缓存元数据，确保任务历史重试有效
+	await initIpaRegistry();
 	await loadTasks();
 	const app = createApp();
 
@@ -127,8 +129,8 @@ async function main() {
 		}
 		const url = `http://localhost:${port}`;
 		printBanner(url);
-		// 启动时清扫上次运行遗留的孤儿 IPA 缓存（registry 为内存态，重启后全部失效）
-		sweepOrphanIpas();
+		// 启动时清扫无任务引用的孤儿残留文件（异步静默执行，不阻塞启动）
+		sweepOrphanIpas().catch(() => {});
 		// 启动时检测新版本并输出控制台警告（后台执行，不阻塞启动）
 		require('./server/routes/version').warnIfOutdated().catch(() => {});
 		if (!opts.noOpen) {

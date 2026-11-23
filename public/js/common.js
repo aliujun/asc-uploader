@@ -36,7 +36,12 @@ export async function api(url, opts) {
     throw new Error(`响应解析失败：${text.slice(0, 120)}`);
   }
   if (!response.ok) {
-    throw new Error((data && data.error) || `请求失败（HTTP ${response.status}）`);
+    const message = (data && data.error) || `请求失败（HTTP ${response.status}）`;
+    const err = new Error(message);
+    if (data && typeof data === 'object') {
+      Object.assign(err, data);
+    }
+    throw err;
   }
   return data;
 }

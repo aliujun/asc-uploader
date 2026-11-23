@@ -288,10 +288,12 @@ async function loadBetaGroups() {
 }
 
 /**
- * 提交上传任务
+ * 提交上传任务（支持签名预检警告二次确认与强制提交）
+ * @param {boolean} [ignorePrecheckWarning=false] 是否忽略预检警告强制提交
  * @returns {Promise<void>}
  */
-async function submitTask() {
+async function submitTask(ignorePrecheckWarning = false) {
+  const shouldIgnore = ignorePrecheckWarning === true;
   const configId = $('upload-config').value;
   if (!configId) {
     toast('请先选择配置', true);
@@ -309,13 +311,26 @@ async function submitTask() {
     const task = await api('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ configId, ipaId: uploadState.ipaMeta.ipaId, autoTestflight, betaGroupIds }),
+      body: JSON.stringify({
+        configId,
+        ipaId: uploadState.ipaMeta.ipaId,
+        autoTestflight,
+        betaGroupIds,
+        ignorePrecheckWarning: shouldIgnore,
+      }),
     });
     subscribeTask(task.id);
     toast('任务已提交');
     loadTaskHistory();
     resetUploadSelection();
   } catch (err) {
+    if (err.isPrecheckWarning) {
+      const confirmed = confirm(`【签名预检提示】\n${err.message}\n\n是否忽略此警告并继续强制提交上传？`);
+      if (confirmed) {
+        await submitTask(true);
+        return;
+      }
+    }
     toast(err.message, true);
   }
 }

@@ -27,8 +27,7 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const { limit, offset } = parsePaging(req.query, 200);
-    const data = await createClient(configId).listProfiles(limit, offset);
+    const data = await createClient(configId).listProfiles();
     // included 关联数据建索引：bundleIds → App ID 信息，certificates → 证书信息
     const includedMap = new Map();
     (data.included || []).forEach((item) => {
@@ -77,8 +76,7 @@ router.get('/bundle-ids', async (req, res) => {
     return;
   }
   try {
-    const { limit, offset } = parsePaging(req.query, 200);
-    const data = await createClient(configId).listBundleIds(limit, offset);
+    const data = await createClient(configId).listBundleIds();
     const list = (data.data || []).map((item) => ({
       id: item.id,
       name: (item.attributes && item.attributes.name) || '',

@@ -30,8 +30,7 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const { limit, offset } = parsePaging(req.query, 200);
-    const data = await createClient(configId).listDevices(limit, offset);
+    const data = await createClient(configId).listDevices();
     const list = (data.data || []).map((item) => {
       const attributes = item.attributes || {};
       return {
@@ -52,15 +51,40 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * POST /api/devices 注册新设备（每年新增数量受 Apple 配额限制，超限由 Apple 返回错误）
+ * POST /api/devices 注册新设备（支持单台注册与批量多台注册）
  * @returns {void}
  */
 router.post('/', async (req, res) => {
-  const { configId, name, platform, udid } = req.body || {};
+  const { configId, name, platform, udid, devices } = req.body || {};
   if (!configId) {
     sendError(res, 400, '缺少 ASC 配置');
     return;
   }
+
+  // 批量注册分支
+  if (Array.isArray(devices) && devices.length > 0) {
+    const client = createClient(configId);
+    const results = [];
+    for (const item of devices) {
+      const devName = (item.name || '').trim();
+      const devPlatform = item.platform || 'IOS';
+      const devUdid = (item.udid || '').trim();
+      if (!devName || !devUdid || !SUPPORTED_PLATFORMS.has(devPlatform)) {
+        results.push({ name: devName || devUdid, ok: false, error: '参数不完整或平台不支持' });
+        continue;
+      }
+      try {
+        const data = await client.createDevice(devName, devPlatform, devUdid);
+        results.push({ name: devName, ok: true, id: (data.data && data.data.id) || '' });
+      } catch (err) {
+        results.push({ name: devName, ok: false, error: err.message });
+      }
+    }
+    res.json({ ok: true, batch: true, results });
+    return;
+  }
+
+  // 单台设备注册分支
   const deviceName = (name || '').trim();
   if (!deviceName) {
     sendError(res, 400, '设备名称不能为空');

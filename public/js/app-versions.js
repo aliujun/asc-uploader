@@ -48,6 +48,7 @@ const state = {
   versions: [],
   configId: '',
   appId: '',
+  nextCursor: null,
   resourcesLoaded: false,
 };
 
@@ -59,6 +60,7 @@ export const template = `<section id="tab-app-versions" class="tab-panel">
             <select id="av-config"><option value="">选择 ASC 配置</option></select>
             <select id="av-app"><option value="">选择 App</option></select>
             <button id="btn-av-refresh">刷新</button>
+            <button id="btn-open-asc-store" class="small hidden" style="margin-left:auto;" title="在浏览器中直接打开 App Store Connect 的版本页面">在 ASC 中打开 ↗</button>
         </div>
         <div id="av-stats" class="stats hidden"></div>
         <div id="av-list" class="config-list"></div>
@@ -118,6 +120,10 @@ async function loadApps() {
   }
   state.apps = data.apps || [];
   fillSelect($('av-app'), '选择 App', state.apps.map((a) => ({ value: a.id, label: a.name })));
+  const btnAsc = $('btn-open-asc-store');
+  if (btnAsc) {
+    btnAsc.classList.add('hidden');
+  }
   // 默认选中第一个 App，直接展示版本列表
   if (state.apps.length > 0) {
     state.appId = state.apps[0].id;
@@ -127,24 +133,53 @@ async function loadApps() {
 }
 
 /**
- * 拉取所选 App 的版本与审核状态并渲染
+ * 拉取所选 App 的版本与审核状态并渲染（支持游标追加）
+ * @param {boolean} [isLoadMore=false] 是否为加载更多下一页
  * @returns {Promise<void>}
  */
-async function loadVersions() {
+async function loadVersions(isLoadMore = false) {
   const wrap = $('av-list');
+  const btnAsc = $('btn-open-asc-store');
   if (!state.appId) {
     state.versions = [];
+    state.nextCursor = null;
+    if (btnAsc) {
+      btnAsc.classList.add('hidden');
+    }
     renderVersionList();
     return;
   }
+
+  if (btnAsc) {
+    btnAsc.classList.remove('hidden');
+    btnAsc.onclick = () => window.open(`https://appstoreconnect.apple.com/apps/${encodeURIComponent(state.appId)}/appstore/ios`, '_blank', 'noopener');
+  }
+
   // 请求序号守卫：快速切换 App 时丢弃过期响应
   const seq = ++versionsReqSeq;
-  const data = await api(`/api/app-versions?configId=${encodeURIComponent(state.configId)}&appId=${encodeURIComponent(state.appId)}`);
-  if (seq !== versionsReqSeq) {
-    return;
+  if (!isLoadMore) {
+    wrap.innerHTML = '<span class="inline-loading">正在加载版本列表...</span>';
+    state.versions = [];
+    state.nextCursor = null;
   }
-  state.versions = data.versions || [];
-  renderVersionList();
+
+  try {
+    const cursorQuery = isLoadMore && state.nextCursor ? `&cursor=${encodeURIComponent(state.nextCursor)}` : '';
+    const data = await api(`/api/app-versions?configId=${encodeURIComponent(state.configId)}&appId=${encodeURIComponent(state.appId)}${cursorQuery}`);
+    if (seq !== versionsReqSeq) {
+      return;
+    }
+    const newItems = Array.isArray(data.versions) ? data.versions : [];
+    if (isLoadMore) {
+      state.versions.push(...newItems);
+    } else {
+      state.versions = newItems;
+    }
+    state.nextCursor = data.nextCursor || null;
+    renderVersionList();
+  } catch (err) {
+    wrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+  }
 }
 
 /**
@@ -214,6 +249,18 @@ function renderVersionList() {
       </div>`;
     wrap.appendChild(row);
   });
+
+  if (state.nextCursor) {
+    const moreWrap = document.createElement('div');
+    moreWrap.style.textAlign = 'center';
+    moreWrap.style.marginTop = '12px';
+    const moreBtn = document.createElement('button');
+    moreBtn.className = 'small';
+    moreBtn.textContent = '加载更多版本...';
+    moreBtn.onclick = () => withLoading(moreBtn, '加载中...', () => loadVersions(true));
+    moreWrap.appendChild(moreBtn);
+    wrap.appendChild(moreWrap);
+  }
 }
 
 /**

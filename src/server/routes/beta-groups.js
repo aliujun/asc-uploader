@@ -16,8 +16,7 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const { limit, offset } = parsePaging(req.query, 200);
-    const data = await createClient(String(configId)).listBetaGroups(limit, offset);
+    const data = await createClient(String(configId)).listBetaGroups();
     const groups = (data.data || []).map((group) => ({
       id: group.id,
       name: group.attributes.name,

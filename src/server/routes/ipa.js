@@ -121,6 +121,8 @@ router.put('/', async (req, res) => {
         createdAt: new Date().toISOString(),
       };
       ipaRegistry.set(ipaId, meta);
+      // 元数据落盘持久化，支持服务重启后历史失败/取消任务一键重试
+      await fsp.writeFile(getMetaPath(ipaId), JSON.stringify(meta, null, 2), 'utf8').catch(() => {});
       settled = true;
       res.json(meta);
     } catch (err) {
@@ -143,28 +145,79 @@ router.put('/', async (req, res) => {
 });
 
 /**
- * 清扫磁盘上所有 IPA 缓存文件（服务启动时调用）。
- * IPA registry 为内存态，服务重启后全部任务引用已失效，目录中的遗留文件均为孤儿。
- * @returns {void}
+ * 构造缓存 IPA 的元数据 JSON 文件路径
+ * @param {string} ipaId IPA ID
+ * @returns {string} 文件绝对路径
  */
-function sweepOrphanIpas() {
+function getMetaPath(ipaId) {
+  return path.join(getDir('ipaCache'), `${ipaId}.meta.json`);
+}
+
+/**
+ * 启动时从磁盘加载未过期的 IPA 元数据到内存注册表
+ * @returns {Promise<void>}
+ */
+async function initIpaRegistry() {
   const cacheDir = getDir('ipaCache');
-  fsp.readdir(cacheDir)
-    .then(async (files) => {
-      const ipaFiles = files.filter((name) => name.toLowerCase().endsWith('.ipa'));
-      for (const name of ipaFiles) {
-        await fsp.unlink(path.join(cacheDir, name)).catch(() => {});
+  try {
+    const files = await fsp.readdir(cacheDir);
+    const metaFiles = files.filter((name) => name.toLowerCase().endsWith('.meta.json'));
+    for (const name of metaFiles) {
+      try {
+        const raw = await fsp.readFile(path.join(cacheDir, name), 'utf8');
+        const meta = JSON.parse(raw);
+        if (!meta || !meta.ipaId) {
+          continue;
+        }
+        const ipaExists = files.includes(`${meta.ipaId}.ipa`);
+        if (ipaExists) {
+          ipaRegistry.set(meta.ipaId, meta);
+        }
+      } catch {
+        // 单个文件解析错误跳过
       }
-      if (ipaFiles.length > 0) {
-        console.log(`${c.gray('[IPA缓存]')} 启动清扫：已删除 ${ipaFiles.length} 个上次运行遗留的 IPA 缓存`);
+    }
+    if (ipaRegistry.size > 0) {
+      console.log(`${c.gray('[IPA缓存]')} 已从本地恢复 ${ipaRegistry.size} 个历史 IPA 缓存记录`);
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error(`${c.gray('[IPA缓存]')} 恢复缓存记录失败：${err.message}`);
+    }
+  }
+}
+
+/**
+ * 清扫磁盘上未被任何有效任务和注册表引用的孤儿 IPA 文件（服务启动时调用）
+ * @returns {Promise<void>}
+ */
+async function sweepOrphanIpas() {
+  const cacheDir = getDir('ipaCache');
+  try {
+    const files = await fsp.readdir(cacheDir);
+    const ipaFiles = files.filter((name) => name.toLowerCase().endsWith('.ipa'));
+    let swept = 0;
+    for (const name of ipaFiles) {
+      const ipaId = name.replace(/\.ipa$/i, '');
+      if (ipaRegistry.has(ipaId)) {
+        continue;
       }
-    })
-    .catch((err) => {
-      // 目录不存在等情况静默忽略
-      if (err.code !== 'ENOENT') {
-        console.error(`${c.gray('[IPA缓存]')} 启动清扫失败：${err.message}`);
+      try {
+        await fsp.unlink(path.join(cacheDir, name));
+        await fsp.unlink(path.join(cacheDir, `${ipaId}.meta.json`)).catch(() => {});
+        swept += 1;
+      } catch {
+        // 清理失败忽略
       }
-    });
+    }
+    if (swept > 0) {
+      console.log(`${c.gray('[IPA缓存]')} 启动清扫：已删除 ${swept} 个无引用孤儿 IPA 缓存`);
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error(`${c.gray('[IPA缓存]')} 启动清扫失败：${err.message}`);
+    }
+  }
 }
 
 /**
@@ -257,7 +310,7 @@ function getIpaPath(ipaId) {
 }
 
 /**
- * 删除缓存的 IPA（文件与元数据）
+ * 删除缓存的 IPA（文件、元数据文件与内存映射）
  * @param {string} ipaId IPA ID
  * @returns {Promise<void>}
  */
@@ -265,6 +318,13 @@ async function removeIpa(ipaId) {
   ipaRegistry.delete(ipaId);
   try {
     await fsp.unlink(getIpaPath(ipaId));
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      throw err;
+    }
+  }
+  try {
+    await fsp.unlink(getMetaPath(ipaId));
   } catch (err) {
     if (err.code !== 'ENOENT') {
       throw err;
@@ -293,4 +353,13 @@ async function checkDiskSpace(needBytes) {
   }
 }
 
-module.exports = { router, findIpa, getIpaPath, removeIpa, sweepOrphanIpas, setProtectedIpaResolver };
+module.exports = {
+  router,
+  findIpa,
+  getIpaPath,
+  getMetaPath,
+  removeIpa,
+  initIpaRegistry,
+  sweepOrphanIpas,
+  setProtectedIpaResolver,
+};

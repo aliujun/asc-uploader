@@ -77,8 +77,7 @@ router.get('/', async (req, res) => {
     return;
   }
   try {
-    const { limit, offset } = parsePaging(req.query, 100);
-    const data = await createClient(configId).listCertificates(limit, offset);
+    const data = await createClient(configId).listCertificates();
     const list = (data.data || []).map((item) => ({
       id: item.id,
       displayName: item.attributes.displayName || '',
@@ -198,6 +197,86 @@ router.delete('/:certId', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     sendError(res, 502, err.message);
+  }
+});
+
+/**
+ * GET /api/asc-certs/backups 获取本地已自动备份的 p12 证书文件列表
+ * @returns {void}
+ */
+router.get('/backups', async (req, res) => {
+  try {
+    await paths.ensureDirs();
+    const backupDir = paths.getDir('backups');
+    const files = await fs.readdir(backupDir);
+    const p12Files = files.filter((f) => f.toLowerCase().endsWith('.p12'));
+    const list = [];
+    for (const file of p12Files) {
+      try {
+        const stat = await fs.stat(path.join(backupDir, file));
+        list.push({
+          filename: file,
+          sizeBytes: stat.size,
+          createdAt: stat.mtime.toISOString(),
+        });
+      } catch {
+        // 单个文件读取失败跳过
+      }
+    }
+    // 按生成时间倒序（最新生成的在前）
+    list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json({ backups: list });
+  } catch (err) {
+    sendError(res, 500, `获取备份列表失败：${err.message}`);
+  }
+});
+
+/**
+ * GET /api/asc-certs/backups/:filename 下载本地已备份的 p12 文件
+ * @returns {void}
+ */
+router.get('/backups/:filename', async (req, res) => {
+  const filename = String(req.params.filename || '');
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    sendError(res, 400, '非法的文件名');
+    return;
+  }
+  const filePath = path.join(paths.getDir('backups'), filename);
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) {
+      sendError(res, 404, '备份文件不存在');
+      return;
+    }
+    const buffer = await fs.readFile(filePath);
+    res.setHeader('Content-Type', 'application/x-pkcs12');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.send(buffer);
+  } catch {
+    sendError(res, 404, '备份文件不存在或无法读取');
+  }
+});
+
+/**
+ * DELETE /api/asc-certs/backups/:filename 删除本地指定的 p12 备份文件
+ * @returns {void}
+ */
+router.delete('/backups/:filename', async (req, res) => {
+  const filename = String(req.params.filename || '');
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    sendError(res, 400, '非法的文件名');
+    return;
+  }
+  const filePath = path.join(paths.getDir('backups'), filename);
+  try {
+    await fs.unlink(filePath);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      sendError(res, 404, '备份文件不存在');
+      return;
+    }
+    sendError(res, 500, `删除备份失败：${err.message}`);
   }
 });
 

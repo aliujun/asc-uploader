@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const { createClient } = require('../core/asc-client');
-const { findIpa, getIpaPath } = require('../server/routes/ipa');
+const { findIpa, getIpaPath, removeIpa } = require('../server/routes/ipa');
 const c = require('../core/term');
 
 /** 校验轮询起始间隔（毫秒） */
@@ -149,7 +149,7 @@ async function runUploadPipeline(task, hooks) {
   await pollUploadState(client, uploadId, hooks, signal);
 
   hooks.update({ stage: 'WAITING_PROCESS', message: '等待 build 处理完成' });
-  const buildId = await pollBuildReady(client, appId, ipa, hooks, signal);
+  const buildId = await pollBuildReady(client, appId, ipa, hooks, signal, task.createdAt);
   updateBuildId(task, hooks, buildId);
   throwIfAborted(signal);
 
@@ -163,6 +163,16 @@ async function runUploadPipeline(task, hooks) {
 
   hooks.update({ stage: 'DONE', progress: 100, message: '上传完成' });
   hooks.log('任务全部完成', 'ok');
+
+  // 上传成功后自动释放本地大文件 IPA 缓存，避免长期占满磁盘空间
+  if (task.ipaId) {
+    try {
+      await removeIpa(task.ipaId);
+      hooks.log('本地 IPA 缓存文件已自动释放');
+    } catch {
+      // 释放失败不影响任务完成状态
+    }
+  }
 }
 
 /**
@@ -329,19 +339,22 @@ function buildValidationErrorMessage(errors) {
 }
 
 /**
- * 轮询并定位处理完成的 build。
+ * 轮询并定位本次上传处理完成的 build。
  * 官方枚举（Build.processingState）：PROCESSING / FAILED / INVALID / VALID
  * @param {Object} client ASC 客户端
  * @param {string} appId app ID
  * @param {Object} ipa IPA 元数据
  * @param {Object} hooks 任务回调
+ * @param {AbortSignal|null} signal 中断信号
+ * @param {string} [taskCreatedAt] 任务创建时间 ISO，用于排除之前上传的同版本历史旧构建
  * @returns {Promise<string>} build ID
  * @throws {Error} 超时或处理失败时抛出
  */
-async function pollBuildReady(client, appId, ipa, hooks, signal) {
+async function pollBuildReady(client, appId, ipa, hooks, signal, taskCreatedAt) {
   const startedAt = Date.now();
   // 轮询间隔从 5s 起步按 1.5 倍指数退避至 15s，减少处理等待期间的无效请求
   let interval = POLL_START_MS;
+  const minTimestamp = taskCreatedAt ? new Date(taskCreatedAt).getTime() - 180000 : 0;
   for (;;) {
     if (Date.now() - startedAt > PROCESS_TIMEOUT_MS) {
       throw new Error('等待 build 处理超时（超过 90 分钟），请稍后在 Builds 页确认结果');
@@ -363,6 +376,13 @@ async function pollBuildReady(client, appId, ipa, hooks, signal) {
       if (String(attrs.version) !== String(ipa.buildVersion)) {
         return false;
       }
+      if (attrs.uploadedDate && minTimestamp > 0) {
+        const uploadedTime = new Date(attrs.uploadedDate).getTime();
+        if (Number.isFinite(uploadedTime) && uploadedTime < minTimestamp) {
+          // 该构建在当前任务创建前就已经存在，属于历史旧构建，排除以防误判旧的 FAILED
+          return false;
+        }
+      }
       const rel = build.relationships && build.relationships.preReleaseVersion;
       const preId = rel && rel.data && rel.data.id;
       const preVersion = preId ? preVersions[preId] : '';
@@ -372,6 +392,14 @@ async function pollBuildReady(client, appId, ipa, hooks, signal) {
       }
       return true;
     });
+
+    // 按上传时间倒序排序，确保最新创建的构建排在最前面
+    candidates.sort((a, b) => {
+      const timeA = new Date(a.attributes?.uploadedDate || 0).getTime();
+      const timeB = new Date(b.attributes?.uploadedDate || 0).getTime();
+      return timeB - timeA;
+    });
+
     const ready = candidates.find((build) => {
       const state = build.attributes.processingState;
       return state === 'VALID' || state === 'FAILED' || state === 'INVALID';

@@ -14,6 +14,7 @@ export const template = `<section id="tab-builds" class="tab-panel">
                         <option value="">先选择配置后加载 App</option>
                     </select>
                     <button id="btn-refresh-builds">刷新</button>
+                    <button id="btn-open-asc-tf" class="small hidden" style="margin-left:auto;" title="在浏览器中直接打开 App Store Connect 的 TestFlight 页面">在 ASC 中打开 ↗</button>
                 </div>
                 <div id="builds-table" class="muted">请先在上方选择配置与 App</div>
             </div>
@@ -41,6 +42,10 @@ const BUILD_STATE_TEXT = {
 
 /** 分发弹窗状态 */
 const distributeState = { buildId: null, configId: null };
+
+/** 当前加载的 builds 列表与下一页游标 */
+let loadedBuilds = [];
+let currentNextCursor = null;
 
 /** build 列表加载请求序号（防竞态：丢弃快速切换后的过期响应） */
 let buildsReqSeq = 0;
@@ -87,6 +92,10 @@ function setSelectLoading(select, loading, text = '加载中...') {
 async function loadAppsForBuilds() {
   const configId = $('builds-config').value;
   const select = $('builds-app');
+  const btnAsc = $('btn-open-asc-tf');
+  if (btnAsc) {
+    btnAsc.classList.add('hidden');
+  }
   $('builds-table').innerHTML = '<span class="muted">请选择 App</span>';
   if (!configId) {
     select.innerHTML = '<option value="">先选择配置</option>';
@@ -112,44 +121,83 @@ async function loadAppsForBuilds() {
 }
 
 /**
- * 加载并渲染 build 表格
+ * 加载并渲染 build 表格（支持游标追加加载）
+ * @param {boolean} [isLoadMore=false] 是否为加载更多下一页
  * @returns {Promise<void>}
  */
-async function loadBuilds() {
+async function loadBuilds(isLoadMore = false) {
   const configId = $('builds-config').value;
   const appId = $('builds-app').value;
   const wrap = $('builds-table');
+  const btnAsc = $('btn-open-asc-tf');
+
   if (!configId || !appId) {
     wrap.innerHTML = '<span class="muted">请先在上方选择配置与 App</span>';
+    if (btnAsc) {
+      btnAsc.classList.add('hidden');
+    }
     return;
   }
+
+  if (btnAsc) {
+    btnAsc.classList.remove('hidden');
+    btnAsc.onclick = () => window.open(`https://appstoreconnect.apple.com/apps/${encodeURIComponent(appId)}/testflight/ios`, '_blank', 'noopener');
+  }
+
   // 请求序号守卫：快速切换配置/App 时丢弃过期响应，避免旧数据覆盖新数据
   const seq = ++buildsReqSeq;
-  wrap.innerHTML = '<span class="inline-loading">正在加载 build 列表...</span>';
+  if (!isLoadMore) {
+    wrap.innerHTML = '<span class="inline-loading">正在加载 build 列表...</span>';
+    loadedBuilds = [];
+    currentNextCursor = null;
+  }
+
   try {
-    const data = await api(`/api/apps/${appId}/builds?configId=${configId}`);
+    const cursorQuery = isLoadMore && currentNextCursor ? `&cursor=${encodeURIComponent(currentNextCursor)}` : '';
+    const data = await api(`/api/apps/${appId}/builds?configId=${configId}${cursorQuery}`);
     if (seq !== buildsReqSeq) {
       return;
     }
-    if (data.builds.length === 0) {
+    const newItems = Array.isArray(data.builds) ? data.builds : [];
+    if (isLoadMore) {
+      loadedBuilds.push(...newItems);
+    } else {
+      loadedBuilds = newItems;
+    }
+    currentNextCursor = data.nextCursor || null;
+
+    if (loadedBuilds.length === 0) {
       wrap.innerHTML = '<span class="muted">该 App 暂无 build</span>';
       return;
     }
-    const rows = data.builds.map((b) => `
+
+    const rows = loadedBuilds.map((b) => `
       <tr>
         <td>${escapeHtml(String(b.version))} ${b.shortVersion ? `(${escapeHtml(b.shortVersion)})` : ''}</td>
         <td><span class="stage-badge ${escapeHtml(b.processingState)}">${escapeHtml(buildStateText(b.processingState))}</span></td>
         <td>${b.uploadedDate ? new Date(b.uploadedDate).toLocaleString() : '-'}</td>
         <td><button class="small" data-build="${b.id}" data-version="${escapeHtml(String(b.version))}">加入测试组</button></td>
       </tr>`).join('');
+
+    const loadMoreHtml = currentNextCursor
+      ? `<div style="text-align:center;margin-top:12px;"><button id="btn-builds-load-more" class="small">加载更多 Build...</button></div>`
+      : '';
+
     wrap.innerHTML = `
       <table class="builds">
         <thead><tr><th>版本</th><th>处理状态</th><th>上传时间</th><th>操作</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>
+      ${loadMoreHtml}`;
+
     wrap.querySelectorAll('[data-build]').forEach((btn) => {
       btn.onclick = () => openDistributeModal(btn.dataset.build, btn.dataset.version, configId);
     });
+
+    const moreBtn = $('btn-builds-load-more');
+    if (moreBtn) {
+      moreBtn.onclick = () => withLoading(moreBtn, '加载中...', () => loadBuilds(true));
+    }
   } catch (err) {
     wrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
   }

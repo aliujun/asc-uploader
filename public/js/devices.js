@@ -36,8 +36,9 @@ export const template = `<section id="tab-devices" class="tab-panel">
                 <div class="modal-box">
                     <h3>注册设备</h3>
                     <div class="form-row">
-                        <label>UDID<span class="req">*</span></label>
-                        <input id="device-udid" placeholder="设备的 UDID（40 位十六进制或 8-4-4-4-12 格式）" autocomplete="off">
+                        <label class="switch-label">
+                            <input type="checkbox" id="device-batch-mode"> 批量录入模式（一次录入多台）
+                        </label>
                     </div>
                     <div class="form-row">
                         <label>平台<span class="req">*</span></label>
@@ -47,9 +48,19 @@ export const template = `<section id="tab-devices" class="tab-panel">
                             <option value="UNIVERSAL">通用（Watch、Apple TV 等）</option>
                         </select>
                     </div>
-                    <div class="form-row">
-                        <label>设备名称<span class="req">*</span></label>
-                        <input id="device-name" placeholder="默认取 UDID 前 6 位，建议填设备型号便于识别" autocomplete="off">
+                    <div id="device-single-fields">
+                        <div class="form-row">
+                            <label>UDID<span class="req">*</span></label>
+                            <input id="device-udid" placeholder="设备的 UDID（40 位十六进制或 8-4-4-4-12 格式）" autocomplete="off">
+                        </div>
+                        <div class="form-row">
+                            <label>设备名称</label>
+                            <input id="device-name" placeholder="默认取 UDID 前 6 位，建议填设备型号便于识别" autocomplete="off">
+                        </div>
+                    </div>
+                    <div id="device-batch-fields" class="form-row hidden">
+                        <label>设备列表（每行一台：UDID 或 名称+空格+UDID）<span class="req">*</span></label>
+                        <textarea id="device-batch-text" rows="6" placeholder="例如：&#10;测试机一 00008101-001234567890001E&#10;测试机二 00008101-001234567890002E&#10;或仅填UDID：&#10;00008101-001234567890003E"></textarea>
                     </div>
                     <p id="device-add-error" class="error hidden"></p>
                     <div class="form-actions">
@@ -165,7 +176,21 @@ function renderDeviceList() {
         ${statusBadgeHtml(device.status)}
         <span class="badge">${escapeHtml(platformLabel(device.platform))}</span>
         <div class="meta">UDID ${escapeHtml(device.udid || '-')} · ${escapeHtml(device.model || deviceClassLabel(device.deviceClass))} · 添加于 ${escapeHtml(formatDate(device.addedDate))}</div>
+      </div>
+      <div class="actions">
+        <button class="small" data-copy-udid="${escapeHtml(device.udid || '')}">复制 UDID</button>
       </div>`;
+    const copyBtn = row.querySelector('[data-copy-udid]');
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(copyBtn.dataset.copyUdid);
+          toast('UDID 已复制到剪贴板');
+        } catch {
+          toast('复制失败，请手动选择复制', true);
+        }
+      };
+    }
     wrap.appendChild(row);
   });
 }
@@ -205,6 +230,16 @@ async function openAddModal() {
   }
   $('device-udid').value = '';
   $('device-name').value = '';
+  const batchText = $('device-batch-text');
+  if (batchText) {
+    batchText.value = '';
+  }
+  const batchMode = $('device-batch-mode');
+  if (batchMode) {
+    batchMode.checked = false;
+    $('device-single-fields').classList.remove('hidden');
+    $('device-batch-fields').classList.add('hidden');
+  }
   // 重置名称占位符，避免残留上一轮输入 UDID 时动态预填的前 6 位
   $('device-name').placeholder = '默认取 UDID 前 6 位，建议填设备型号便于识别';
   $('device-platform').value = 'IOS';
@@ -222,18 +257,68 @@ function closeAddModal() {
 }
 
 /**
- * 提交注册请求：成功后刷新列表并关弹窗
+ * 提交注册请求（支持单台注册与批量多台）：成功后刷新列表并关弹窗
  * @returns {Promise<void>}
  */
 async function submitAdd() {
-  const udid = $('device-udid').value.trim();
+  const isBatch = $('device-batch-mode') && $('device-batch-mode').checked;
   const platform = $('device-platform').value;
+  const errorEl = $('device-add-error');
+
+  // 批量注册分支
+  if (isBatch) {
+    const rawText = ($('device-batch-text').value || '').trim();
+    if (!rawText) {
+      toast('请填写待注册的设备信息', true);
+      return;
+    }
+    const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const devices = [];
+    for (const line of lines) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 2) {
+        devices.push({ name: parts[0], udid: parts[1], platform });
+        continue;
+      }
+      if (parts.length === 1) {
+        devices.push({ name: parts[0].slice(0, 6), udid: parts[0], platform });
+      }
+    }
+    if (devices.length === 0) {
+      toast('未解析到有效设备行', true);
+      return;
+    }
+    try {
+      await withLoading($('btn-device-add-submit'), '批量注册中...', async () => {
+        const res = await api('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ configId: state.configId, devices }),
+        });
+        const successCount = (res.results || []).filter((r) => r.ok).length;
+        const failCount = devices.length - successCount;
+        closeAddModal();
+        if (failCount === 0) {
+          toast(`批量注册成功，共 ${successCount} 台设备`);
+        } else {
+          toast(`注册完成：成功 ${successCount} 台，失败 ${failCount} 台（详情可在列表核对）`, true);
+        }
+        loadDeviceList();
+      });
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.classList.remove('hidden');
+    }
+    return;
+  }
+
+  // 单台注册分支
+  const udid = $('device-udid').value.trim();
   const name = $('device-name').value.trim() || udid.slice(0, 6);
   if (!udid) {
     toast('请填写设备 UDID', true);
     return;
   }
-  const errorEl = $('device-add-error');
   try {
     await withLoading($('btn-device-add-submit'), '注册中...', async () => {
       await api('/api/devices', {
@@ -294,6 +379,14 @@ export function init() {
   $('btn-device-add').addEventListener('click', () => {
     openAddModal();
   });
+  const batchModeCheckbox = $('device-batch-mode');
+  if (batchModeCheckbox) {
+    batchModeCheckbox.addEventListener('change', () => {
+      const isBatch = batchModeCheckbox.checked;
+      $('device-single-fields').classList.toggle('hidden', isBatch);
+      $('device-batch-fields').classList.toggle('hidden', !isBatch);
+    });
+  }
   // UDID 输入后名称为空时自动预填（取 UDID 前 6 位）
   $('device-udid').addEventListener('input', () => {
     const nameEl = $('device-name');

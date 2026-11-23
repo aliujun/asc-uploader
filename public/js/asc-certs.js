@@ -1,6 +1,6 @@
 /* 证书管理组件：ASC API 证书列表、签发（自动合成 p12 下载）、吊销；到期监控统一在到期总览页 */
 import {
-  $, api, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, platformText, toast, typeLabel, withLoading,
+  $, api, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, fmtSize, platformText, toast, typeLabel, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -31,12 +31,19 @@ export const template = `<section id="tab-asc-certs" class="tab-panel">
             </div>
 
             <div class="card">
+                <h2>本地 p12 备份管理 <button id="btn-backup-refresh" class="small">刷新</button></h2>
+                <p class="muted">通过本助手在线签发的 .p12 会自动在本地备份目录中存档，若浏览器未下载成功或更换打包环境，可随时在此重新下载。</p>
+                <div id="asc-backup-list" class="config-list"><span class="muted">正在加载备份列表...</span></div>
+            </div>
+
+            <div class="card">
                 <h2>说明</h2>
                 <ol class="steps">
                     <li>签发需要：<b>ASC 配置</b>（配置管理页中已验证的）+ <b>本地私钥</b>（证书工具页生成或导入的）。</li>
                     <li>签发时工具会用所选私钥自动生成 CSR 并提交 Apple，签发成功后自动合成 .p12 供下载，无需手动上传 CSR、下载 .cer。</li>
                     <li>每种证书类型在 Apple 有数量上限（如 iOS Distribution 最多 3 个），到期或不再使用时请先吊销旧证书。</li>
                     <li>吊销立即生效且不可恢复，使用该证书签名的描述文件会随之失效。</li>
+                    <li>如果没有 API 密钥（.p8），也可以前往「证书工具」页走传统手动 CSR / .cer 模式。</li>
                 </ol>
             </div>
 
@@ -256,6 +263,7 @@ async function submitIssue() {
       state.configId = form.configId;
       $('asc-cert-config').value = form.configId;
       loadCertList();
+      loadBackupList();
     });
   } catch (err) {
     errorEl.textContent = err.message;
@@ -317,6 +325,82 @@ export async function gotoIssue(keyId) {
 }
 
 /**
+ * 加载并渲染本地 p12 备份列表
+ * @returns {Promise<void>}
+ */
+async function loadBackupList() {
+  const wrap = $('asc-backup-list');
+  try {
+    const data = await api('/api/asc-certs/backups');
+    const backups = Array.isArray(data.backups) ? data.backups : [];
+    if (backups.length === 0) {
+      wrap.innerHTML = '<span class="muted">暂无本地备份文件</span>';
+      return;
+    }
+    wrap.innerHTML = '';
+    backups.forEach((b) => {
+      const row = document.createElement('div');
+      row.className = 'config-item';
+      row.innerHTML = `
+        <div>
+          <span class="name">${escapeHtml(b.filename)}</span>
+          <span class="badge ok">${fmtSize(b.sizeBytes)}</span>
+          <div class="meta">备份时间：${escapeHtml(new Date(b.createdAt).toLocaleString())}</div>
+        </div>
+        <div class="actions">
+          <button class="small" data-act="download">重新下载</button>
+          <button class="small danger" data-act="delete">删除</button>
+        </div>`;
+      row.querySelector('[data-act="download"]').onclick = () => downloadBackup(b.filename);
+      row.querySelector('[data-act="delete"]').onclick = (e) => deleteBackup(b.filename, e.currentTarget);
+      wrap.appendChild(row);
+    });
+  } catch (err) {
+    wrap.innerHTML = `<span class="error">加载备份失败：${escapeHtml(err.message)}</span>`;
+  }
+}
+
+/**
+ * 下载已备份的 p12 文件
+ * @param {string} filename 备份文件名
+ * @returns {Promise<void>}
+ */
+async function downloadBackup(filename) {
+  try {
+    const response = await fetch(`/api/asc-certs/backups/${encodeURIComponent(filename)}`);
+    if (!response.ok) {
+      throw new Error(`下载失败（HTTP ${response.status}）`);
+    }
+    const blob = await response.blob();
+    await downloadFile(filename, blob, 'application/x-pkcs12');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+/**
+ * 删除本地已备份的 p12 文件
+ * @param {string} filename 备份文件名
+ * @param {HTMLButtonElement} button 触发按钮
+ * @returns {Promise<void>}
+ */
+async function deleteBackup(filename, button) {
+  const ok = confirm(`确定删除本地备份文件「${filename}」吗？删除后无法恢复。`);
+  if (!ok) {
+    return;
+  }
+  try {
+    await withLoading(button, '删除中...', async () => {
+      await api(`/api/asc-certs/backups/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+      toast('备份文件已删除');
+      await loadBackupList();
+    });
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+/**
  * 绑定组件内事件
  * @returns {void}
  */
@@ -337,6 +421,9 @@ export function init() {
     }
     withLoading(event.currentTarget, '刷新中...', loadCertList);
   });
+  $('btn-backup-refresh').addEventListener('click', (event) => {
+    withLoading(event.currentTarget, '刷新中...', loadBackupList);
+  });
   $('btn-asc-issue-open').addEventListener('click', () => {
     openIssueModal();
   });
@@ -351,7 +438,7 @@ export function init() {
 }
 
 /**
- * 切换到本页时触发：首次加载配置/私钥资源并默认选中第一个配置，之后每次刷新列表
+ * 切换到本页时触发：首次加载配置/私钥资源并默认选中第一个配置，之后每次刷新列表与备份
  * @returns {Promise<void>}
  */
 export async function onShown() {
@@ -368,4 +455,5 @@ export async function onShown() {
   if (state.configId) {
     await loadCertList();
   }
+  await loadBackupList();
 }

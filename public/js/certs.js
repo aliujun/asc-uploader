@@ -9,6 +9,9 @@ export const title = '证书工具';
 
 /** 页面模板（原 index.html 证书工具区块整体搬运，active 类由注册器注入） */
 export const template = `<section id="tab-certs" class="tab-panel">
+            <div class="card" style="border-left: 4px solid var(--primary, #0071e3);">
+                <p style="margin:0;"><b>💡 提示：</b>若您已在「配置管理」中配置了 API 密钥，推荐直接前往 <a href="javascript:void(0)" id="link-certs-to-asc" style="color:var(--primary);font-weight:bold;text-decoration:underline;">证书管理</a> 进行<b>一键在线签发并自动合成 .p12</b>，完全无需手动上传 CSR 和下载 .cer 文件。</p>
+            </div>
             <div class="card">
                 <h2>第 1 步：生成私钥与 CSR</h2>
                 <p class="muted">生成 RSA 2048 私钥（自动保存在本地）与证书签名请求（.csr）。</p>
@@ -336,6 +339,10 @@ export function init() {
   $('btn-download-csr').onclick = () => downloadFile('certificate signing request.csr', $('csr-text').value);
   $('btn-goto-issue').onclick = () => gotoIssue(lastGeneratedKeyId);
   $('btn-goto-issue-step2').onclick = () => gotoIssue();
+  const linkToAsc = $('link-certs-to-asc');
+  if (linkToAsc) {
+    linkToAsc.onclick = () => gotoIssue();
+  }
 
   // 读取证书文件：PEM 文本直接填充；DER 二进制（Apple 下载的 .cer）转 Base64 后填充
   $('cert-cer-file').addEventListener('change', async (event) => {
