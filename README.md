@@ -62,13 +62,13 @@ Windows 下的 App Store Connect（ASC）IPA 上传工具：本地 Web 界面操
 ### 方式一：npx 一行命令运行（推荐，需 Node.js ≥ 20）
 
 ```bash
-npx asc-uploader
+npx asc-uploader@latest
 ```
 
-首次运行自动下载，之后走本地缓存；升级执行 `npx asc-uploader@latest`。全局安装后可用简写命令：
+首次运行自动下载，之后同版本走本地缓存秒开；发布新版后再次执行会自动拉取最新版，无需手动升级。全局安装后可用简写命令：
 
 ```bash
-npm i -g asc-uploader
+npm i -g asc-uploader@latest
 asc-up
 ```
 
@@ -98,7 +98,7 @@ npm start
 | `-h, --help` | 显示帮助 |
 | `-v, --version` | 显示版本号 |
 
-例如：`npx asc-uploader --port 9000 --no-open`
+例如：`npx asc-uploader@latest --port 9000 --no-open`
 
 ## 使用说明
 
