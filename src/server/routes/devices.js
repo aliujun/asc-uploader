@@ -61,25 +61,32 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  // 批量注册分支
+  // 批量注册分支（受控并发 3，ASC API 客户端自带 429 退避重试兜底）
   if (Array.isArray(devices) && devices.length > 0) {
     const client = createClient(configId);
-    const results = [];
-    for (const item of devices) {
-      const devName = (item.name || '').trim();
-      const devPlatform = item.platform || 'IOS';
-      const devUdid = (item.udid || '').trim();
-      if (!devName || !devUdid || !SUPPORTED_PLATFORMS.has(devPlatform)) {
-        results.push({ name: devName || devUdid, ok: false, error: '参数不完整或平台不支持' });
-        continue;
-      }
-      try {
-        const data = await client.createDevice(devName, devPlatform, devUdid);
-        results.push({ name: devName, ok: true, id: (data.data && data.data.id) || '' });
-      } catch (err) {
-        results.push({ name: devName, ok: false, error: err.message });
+    const results = new Array(devices.length);
+    let cursor = 0;
+    async function runOne() {
+      while (cursor < devices.length) {
+        const index = cursor;
+        cursor += 1;
+        const item = devices[index];
+        const devName = (item.name || '').trim();
+        const devPlatform = item.platform || 'IOS';
+        const devUdid = (item.udid || '').trim();
+        if (!devName || !devUdid || !SUPPORTED_PLATFORMS.has(devPlatform)) {
+          results[index] = { name: devName || devUdid, ok: false, error: '参数不完整或平台不支持' };
+          continue;
+        }
+        try {
+          const data = await client.createDevice(devName, devPlatform, devUdid);
+          results[index] = { name: devName, ok: true, id: (data.data && data.data.id) || '' };
+        } catch (err) {
+          results[index] = { name: devName, ok: false, error: err.message };
+        }
       }
     }
+    await Promise.all(devices.slice(0, 3).map(() => runOne()));
     res.json({ ok: true, batch: true, results });
     return;
   }
@@ -112,6 +119,47 @@ router.post('/', async (req, res) => {
         status: attributes.status || '',
         model: attributes.model || '',
         addedDate: attributes.addedDate || '',
+      },
+    });
+  } catch (err) {
+    sendError(res, 502, err.message);
+  }
+});
+
+/**
+ * PATCH /api/devices/:id 修改设备（改名 / 启停，官方 Modify a Registered Device）
+ * @returns {void}
+ */
+router.patch('/:id', async (req, res) => {
+  const { configId, name, status } = req.body || {};
+  if (!configId) {
+    sendError(res, 400, '缺少 ASC 配置');
+    return;
+  }
+  const deviceName = (name || '').trim();
+  if (!deviceName && !status) {
+    sendError(res, 400, '至少提供新名称或启停状态');
+    return;
+  }
+  if (status && status !== 'ENABLED' && status !== 'DISABLED') {
+    sendError(res, 400, '状态仅支持 ENABLED / DISABLED');
+    return;
+  }
+  const patch = {};
+  if (deviceName) {
+    patch.name = deviceName;
+  }
+  if (status) {
+    patch.status = status;
+  }
+  try {
+    const data = await createClient(configId).updateDevice(req.params.id, patch);
+    const attributes = (data.data && data.data.attributes) || {};
+    res.json({
+      device: {
+        id: (data.data && data.data.id) || req.params.id,
+        name: attributes.name || deviceName,
+        status: attributes.status || status || '',
       },
     });
   } catch (err) {

@@ -27,7 +27,7 @@ export const template = `<section id="tab-devices" class="tab-panel">
                 <ol class="steps">
                     <li>UDID 获取方式：iOS 设备可连接电脑后在 Xcode「Devices and Simulators」查看，或访问 udid.io 等在线工具页获取。</li>
                     <li>Apple 对每年新增设备数量有配额限制（会员类型不同配额不同），超限注册会被拒绝。</li>
-                    <li>设备的删除与停用仅支持在 <a href="https://developer.apple.com/account/resources/devices/list" target="_blank" rel="noopener"><b>Apple Developer 官网</b></a>（Certificates, Identifiers &amp; Profiles → Devices）操作，工具暂不提供。</li>
+                    <li>设备的<b>删除</b>仅支持在 <a href="https://developer.apple.com/account/resources/devices/list" target="_blank" rel="noopener"><b>Apple Developer 官网</b></a>（Certificates, Identifiers &amp; Profiles → Devices）操作，API 未开放；改名与停用可直接在本工具列表中编辑。</li>
                     <li>注册成功后即可在「描述文件」页生成 Ad Hoc / 开发描述文件时勾选该设备。</li>
                 </ol>
             </div>
@@ -69,14 +69,40 @@ export const template = `<section id="tab-devices" class="tab-panel">
                     </div>
                 </div>
             </div>
+
+            <div id="device-edit-modal" class="modal hidden">
+                <div class="modal-box">
+                    <h3>编辑设备</h3>
+                    <div class="form-row">
+                        <label>设备名称<span class="req">*</span></label>
+                        <input id="device-edit-name" placeholder="便于识别的设备名称" autocomplete="off">
+                    </div>
+                    <div class="form-row">
+                        <label>状态</label>
+                        <select id="device-edit-status">
+                            <option value="ENABLED">已启用（可加入新描述文件）</option>
+                            <option value="DISABLED">已停用（不参与新描述文件）</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <span class="muted">UDID 与平台不可修改（Apple 规则）；停用的设备不会从已有描述文件中移除。</span>
+                    </div>
+                    <p id="device-edit-error" class="error hidden"></p>
+                    <div class="form-actions">
+                        <button id="btn-device-edit-submit" class="primary">保存</button>
+                        <button id="btn-device-edit-cancel">取消</button>
+                    </div>
+                </div>
+            </div>
         </section>`;
 
-/** 组件状态：configs 供下拉，devices 为当前配置下的设备列表 */
+/** 组件状态：configs 供下拉，devices 为当前配置下的设备列表，editingDeviceId 为编辑弹窗当前目标 */
 const state = {
   configs: [],
   devices: [],
   configId: '',
   resourcesLoaded: false,
+  editingDeviceId: '',
 };
 
 /**
@@ -178,8 +204,13 @@ function renderDeviceList() {
         <div class="meta">UDID ${escapeHtml(device.udid || '-')} · ${escapeHtml(device.model || deviceClassLabel(device.deviceClass))} · 添加于 ${escapeHtml(formatDate(device.addedDate))}</div>
       </div>
       <div class="actions">
+        <button class="small" data-edit-device="${escapeHtml(device.id || '')}">编辑</button>
         <button class="small" data-copy-udid="${escapeHtml(device.udid || '')}">复制 UDID</button>
       </div>`;
+    const editBtn = row.querySelector('[data-edit-device]');
+    if (editBtn) {
+      editBtn.onclick = () => openEditModal(device);
+    }
     const copyBtn = row.querySelector('[data-copy-udid]');
     if (copyBtn) {
       copyBtn.onclick = async () => {
@@ -333,6 +364,69 @@ async function submitAdd() {
   }
 }
 
+/**
+ * 打开编辑设备弹窗（改名 + 启用/停用）
+ * @param {{id: string, name: string, status: string}} device 当前设备对象
+ * @returns {void}
+ */
+function openEditModal(device) {
+  if (!device.id) {
+    toast('设备缺少 ID，无法编辑', true);
+    return;
+  }
+  state.editingDeviceId = device.id;
+  $('device-edit-name').value = device.name || '';
+  $('device-edit-status').value = device.status || 'ENABLED';
+  $('device-edit-error').classList.add('hidden');
+  $('device-edit-modal').classList.remove('hidden');
+}
+
+/**
+ * 关闭编辑设备弹窗并清空错误提示
+ * @returns {void}
+ */
+function closeEditModal() {
+  $('device-edit-modal').classList.add('hidden');
+  $('device-edit-error').classList.add('hidden');
+  state.editingDeviceId = '';
+}
+
+/**
+ * 提交设备编辑：改名与状态切换，成功后刷新列表并关弹窗
+ * @returns {Promise<void>}
+ */
+async function submitEdit() {
+  const deviceId = state.editingDeviceId;
+  if (!deviceId) {
+    toast('请先从列表选择要编辑的设备', true);
+    return;
+  }
+  const name = $('device-edit-name').value.trim();
+  if (!name) {
+    const errorEl = $('device-edit-error');
+    errorEl.textContent = '设备名称不能为空';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  const status = $('device-edit-status').value;
+  try {
+    await withLoading($('btn-device-edit-submit'), '保存中...', async () => {
+      await api(`/api/devices/${encodeURIComponent(deviceId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configId: state.configId, name, status }),
+      });
+      closeEditModal();
+      toast('设备已更新');
+      loadDeviceList();
+    });
+  } catch (err) {
+    const errorEl = $('device-edit-error');
+    errorEl.textContent = err.message;
+    errorEl.classList.remove('hidden');
+  }
+}
+
 /** 切到本页签时按当前配置刷新列表（首次加载配置下拉） */
 export async function onShown() {
   try {
@@ -395,4 +489,8 @@ export function init() {
     submitAdd();
   });
   $('btn-device-add-cancel').addEventListener('click', closeAddModal);
+  $('btn-device-edit-submit').addEventListener('click', () => {
+    submitEdit();
+  });
+  $('btn-device-edit-cancel').addEventListener('click', closeEditModal);
 }

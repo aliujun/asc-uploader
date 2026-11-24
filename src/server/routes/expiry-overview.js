@@ -9,9 +9,6 @@ const router = express.Router();
 /** 临期阈值（天）：剩余天数 ≤ 该值时纳入总览 */
 const EXPIRY_WINDOW_DAYS = 60;
 
-/** 聚合请求的最大并发数（控制对 ASC API 的瞬时压力，避免触发限流） */
-const MAX_CONCURRENCY = 2;
-
 /**
  * 计算剩余有效天数
  * @param {string} expirationDate 到期时间（ISO 字符串）
@@ -109,7 +106,9 @@ async function runPool(items, limit, worker) {
 router.get('/', async (req, res) => {
   try {
     const { configs } = await store.listSafe();
-    const items = await runPool(configs, MAX_CONCURRENCY, fetchConfigExpiry);
+    // 并发数随配置数量动态调整（1~3），配置少时不再固定等待 2 槽
+    const concurrency = Math.min(configs.length, 3) || 1;
+    const items = await runPool(configs, concurrency, fetchConfigExpiry);
     res.json({ items, windowDays: EXPIRY_WINDOW_DAYS });
   } catch (err) {
     res.status(502).json({ error: err.message });

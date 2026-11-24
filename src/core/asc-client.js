@@ -297,10 +297,12 @@ class AscClient {
    * @returns {Promise<Object>} ASC apps 响应
    */
   async listApps(limit = 200, cursor = '') {
+    // 稀疏字段集：前端与上传流程只用 name/bundleId/sku，裁剪其余字段降低响应体积
+    const fields = '&fields[apps]=name,bundleId,sku';
     if (cursor) {
-      return this.request('GET', `/v1/apps?${pagingQuery(limit, cursor)}`);
+      return this.request('GET', `/v1/apps?${pagingQuery(limit, cursor)}${fields}`);
     }
-    return this.requestAll(`/v1/apps?limit=${Math.min(limit, 200)}`);
+    return this.requestAll(`/v1/apps?limit=${Math.min(limit, 200)}${fields}`);
   }
 
   /**
@@ -312,6 +314,26 @@ class AscClient {
    */
   async listBuilds(appId, limit = 50, cursor = '') {
     return this.request('GET', `/v1/builds?filter[app]=${appId}&${pagingQuery(limit, cursor)}&sort=-uploadedDate&include=preReleaseVersion`);
+  }
+
+  /**
+   * 按 build 号精确查询指定 app 的构建（上传轮询专用：服务端过滤 + 稀疏字段集，减少配额与响应体积）
+   * @param {string} appId app ID
+   * @param {string|number} buildVersion build 号（Build.version）
+   * @param {number} [limit=5] 单页数量上限
+   * @returns {Promise<Object>} ASC builds 响应（含 included 的 preReleaseVersion）
+   */
+  async listBuildsByVersion(appId, buildVersion, limit = 5) {
+    const query = [
+      `filter[app]=${appId}`,
+      `filter[version]=${encodeURIComponent(String(buildVersion))}`,
+      'sort=-uploadedDate',
+      `limit=${limit}`,
+      'include=preReleaseVersion',
+      'fields[builds]=version,uploadedDate,processingState',
+      'fields[preReleaseVersions]=version',
+    ].join('&');
+    return this.request('GET', `/v1/builds?${query}`);
   }
 
   /**
@@ -332,10 +354,12 @@ class AscClient {
    * @returns {Promise<Object>} ASC betaGroups 响应
    */
   async listBetaGroups(limit = 200, cursor = '') {
+    // 稀疏字段集：消费端只用 name/isInternalGroup
+    const fields = '&fields[betaGroups]=name,isInternalGroup';
     if (cursor) {
-      return this.request('GET', `/v1/betaGroups?${pagingQuery(limit, cursor)}`);
+      return this.request('GET', `/v1/betaGroups?${pagingQuery(limit, cursor)}${fields}`);
     }
-    return this.requestAll(`/v1/betaGroups?limit=${Math.min(limit, 200)}`);
+    return this.requestAll(`/v1/betaGroups?limit=${Math.min(limit, 200)}${fields}`);
   }
 
   /**
@@ -425,10 +449,13 @@ class AscClient {
    * @returns {Promise<Object>} ASC certificates 响应
    */
   async listCertificates(limit = 200, cursor = '') {
+    // 稀疏字段集：certificateContent 必须保留（下载证书/合成 p12 依赖）
+    // 稀疏字段集：certificateContent 必须保留（下载证书/合成 p12 依赖）；注意 Certificates 资源无 createdDate 字段
+    const fields = '&fields[certificates]=displayName,certificateType,serialNumber,platform,expirationDate,certificateContent';
     if (cursor) {
-      return this.request('GET', `/v1/certificates?${pagingQuery(limit, cursor)}`);
+      return this.request('GET', `/v1/certificates?${pagingQuery(limit, cursor)}${fields}`);
     }
-    return this.requestAll(`/v1/certificates?limit=${Math.min(limit, 200)}`);
+    return this.requestAll(`/v1/certificates?limit=${Math.min(limit, 200)}${fields}`);
   }
 
   /**
@@ -476,10 +503,22 @@ class AscClient {
    * @returns {Promise<Object>} ASC bundleIds 响应
    */
   async listBundleIds(limit = 200, cursor = '') {
+    // 稀疏字段集：消费端只用 name/identifier/platform
+    const fields = '&fields[bundleIds]=name,identifier,platform';
     if (cursor) {
-      return this.request('GET', `/v1/bundleIds?${pagingQuery(limit, cursor)}`);
+      return this.request('GET', `/v1/bundleIds?${pagingQuery(limit, cursor)}${fields}`);
     }
-    return this.requestAll(`/v1/bundleIds?limit=${Math.min(limit, 200)}`);
+    return this.requestAll(`/v1/bundleIds?limit=${Math.min(limit, 200)}${fields}`);
+  }
+
+  /**
+   * 查询指定 App ID（Bundle ID 资源）下的全部描述文件（官方关系端点，用于删除前引用检查）
+   * 注意：/v1/profiles 不支持 filter[bundleId]，必须走关系端点
+   * @param {string} bundleIdResourceId bundleId 资源 ID
+   * @returns {Promise<{data: Array<Object>}>} ASC profiles 响应（自动聚合多页，稀疏字段裁剪）
+   */
+  async listProfilesForBundleId(bundleIdResourceId) {
+    return this.requestAll(`/v1/bundleIds/${encodeURIComponent(bundleIdResourceId)}/profiles?fields[profiles]=name,profileType,expirationDate`);
   }
 
   /**
@@ -648,6 +687,30 @@ class AscClient {
       },
     };
     return this.request('POST', '/v1/devices', { body });
+  }
+
+  /**
+   * 修改设备信息（官方 Modify a Registered Device：可改名称与启停状态；删除仍仅官网支持）
+   * @param {string} deviceId 设备 ID
+   * @param {Object} patch {name?, status?}（status 仅 ENABLED / DISABLED）
+   * @returns {Promise<Object>} ASC devices 响应
+   */
+  async updateDevice(deviceId, patch) {
+    const attributes = {};
+    if (patch.name !== undefined) {
+      attributes.name = patch.name;
+    }
+    if (patch.status !== undefined) {
+      attributes.status = patch.status;
+    }
+    const body = {
+      data: {
+        type: 'devices',
+        id: deviceId,
+        attributes,
+      },
+    };
+    return this.request('PATCH', `/v1/devices/${deviceId}`, { body });
   }
 
   /**

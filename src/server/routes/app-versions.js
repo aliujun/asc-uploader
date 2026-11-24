@@ -38,7 +38,8 @@ router.get('/', async (req, res) => {
       return {
         id: item.id,
         versionString: attributes.versionString || '',
-        appStoreState: attributes.appStoreState || '',
+        // API v3.3 起旧字段 appStoreState 已废弃，新字段优先、旧字段兜底
+        appStoreState: attributes.appVersionState || attributes.appStoreState || '',
         createdDate: attributes.createdDate || '',
         releasedDate: attributes.releasedDate || '',
       };

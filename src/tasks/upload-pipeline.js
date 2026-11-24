@@ -362,7 +362,8 @@ async function pollBuildReady(client, appId, ipa, hooks, signal, taskCreatedAt) 
     await sleep(interval);
     throwIfAborted(signal);
     interval = Math.min(POLL_MAX_MS, Math.round(interval * 1.5));
-    const data = await client.listBuilds(appId, 100);
+    // 轮询按 build 号服务端精确过滤（listBuildsByVersion），仅本地保留时间窗与短版本号校验
+    const data = await client.listBuildsByVersion(appId, ipa.buildVersion);
     // 短版本号在关联的 preReleaseVersion 资源上（builds 自身没有该字段）
     const preVersions = {};
     (data.included || []).forEach((inc) => {

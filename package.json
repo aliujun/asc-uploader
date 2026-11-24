@@ -42,6 +42,11 @@
     "@yao-pkg/pkg": "^6.4.0",
     "rcedit": "^5.0.2"
   },
+  "overrides": {
+    "@yao-pkg/pkg": {
+      "into-stream": "6.0.0"
+    }
+  },
   "pkg": {
     "assets": [
       "public/**/*"

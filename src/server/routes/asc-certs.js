@@ -147,6 +147,8 @@ router.get('/:certId/refs', async (req, res) => {
     return;
   }
   try {
+    // Apple API 不支持证书→描述文件反查（/v1/certificates/{id}/profiles 不存在，
+    // /v1/profiles 也无 filter[certificates]），只能拉全量 profiles 后本地匹配
     const data = await createClient(configId).listProfiles();
     const includedMap = new Map();
     (data.included || []).forEach((item) => {

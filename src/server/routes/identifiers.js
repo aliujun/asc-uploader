@@ -256,12 +256,9 @@ router.get('/:id/refs', async (req, res) => {
     return;
   }
   try {
-    const data = await createClient(configId).listProfiles();
+    // 走官方关系端点按 App ID 服务端过滤，替代拉全量 profiles 后本地匹配
+    const data = await createClient(configId).listProfilesForBundleId(id);
     const refs = (data.data || [])
-      .filter((item) => {
-        const rel = item.relationships || {};
-        return rel.bundleId && rel.bundleId.data && rel.bundleId.data.id === id;
-      })
       .map((item) => {
         const attributes = item.attributes || {};
         return {
