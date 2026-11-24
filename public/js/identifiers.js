@@ -83,6 +83,35 @@ function capabilityOptionLabel(capabilityType) {
   return `${item.label} - ${item.zh}`;
 }
 
+/** 能力徽章折叠阈值：超过时默认只展示前 3 个，其余折叠为「+N」 */
+const CAP_BADGE_LIMIT = 3;
+
+/**
+ * 渲染单个 App ID 条目的能力徽章区：超过阈值默认折叠，点击「+N」展开、点击「收起」折叠
+ * @param {HTMLElement} container 徽章容器
+ * @param {Object} item App ID 条目
+ * @param {boolean} expanded 是否展开全部
+ * @returns {void}
+ */
+function renderCapBadges(container, item, expanded) {
+  const caps = item.capabilities || [];
+  container.innerHTML = caps
+    .slice(0, expanded ? caps.length : CAP_BADGE_LIMIT)
+    .map((cap) => `<span class="badge">${escapeHtml(capabilityLabel(cap))}</span>`)
+    .join('');
+  if (caps.length <= CAP_BADGE_LIMIT) {
+    return;
+  }
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'badge more';
+  toggle.textContent = expanded ? '收起' : `+${caps.length - CAP_BADGE_LIMIT}`;
+  toggle.onclick = () => {
+    renderCapBadges(container, item, !expanded);
+  };
+  container.appendChild(toggle);
+}
+
 /**
  * App ID 平台枚举 → 展示文案
  * @param {string} platform 平台标识
@@ -213,20 +242,18 @@ function renderIdentifierList() {
   list.forEach((item) => {
     const row = document.createElement('div');
     row.className = 'config-item';
-    const capBadges = (item.capabilities || [])
-      .map((cap) => `<span class="badge">${escapeHtml(capabilityLabel(cap))}</span>`)
-      .join('');
     row.innerHTML = `
       <div>
         <span class="name">${escapeHtml(item.name || '未命名 App ID')}</span>
         <span class="badge">${escapeHtml(platformLabel(item.platform))}</span>
-        ${capBadges}
+        <span class="cap-badges"></span>
         <div class="meta">${escapeHtml(item.identifier || '-')}</div>
       </div>
       <div class="actions">
         <button class="small" data-act="edit">编辑</button>
         <button class="small danger" data-act="delete">删除</button>
       </div>`;
+    renderCapBadges(row.querySelector('.cap-badges'), item, false);
     row.querySelector('[data-act="edit"]').onclick = () => {
       openEditModal(item);
     };

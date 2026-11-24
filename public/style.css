@@ -511,6 +511,18 @@ button.danger {
 	/* 默认灰底：类型/平台等中性徽章不带 ok/warn/err 修饰类，无背景时会白字隐形 */
 	background: var(--muted);
 }
+/* 能力徽章「+N 展开 / 收起」按钮：复用徽章外观，虚线边框区分可点击 */
+button.badge.more {
+	font-family: inherit;
+	background: transparent;
+	border: 1px dashed var(--muted);
+	color: var(--muted);
+	cursor: pointer;
+}
+button.badge.more:hover {
+	background: var(--muted);
+	color: #fff;
+}
 .badge.ok {
 	background: var(--ok);
 }
