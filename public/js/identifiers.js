@@ -22,13 +22,20 @@ let listReqSeq = 0;
 /** 常用能力清单（弹框勾选项）：label 为官网英文显示名，zh 为中文备注（勾选区以「label - zh」展示；列表徽章仅用英文） */
 const COMMON_CAPABILITIES = [
   { type: 'PUSH_NOTIFICATIONS', label: 'Push Notifications', zh: '推送通知' },
+  { type: 'IN_APP_PURCHASE', label: 'In-App Purchase', zh: 'App 内购买' },
   { type: 'APP_GROUPS', label: 'App Groups', zh: 'App 群组' },
   { type: 'ASSOCIATED_DOMAINS', label: 'Associated Domains', zh: '关联域（Universal Links）' },
   { type: 'APPLE_ID_AUTH', label: 'Sign In with Apple', zh: '通过 Apple 登录' },
   { type: 'ICLOUD', label: 'iCloud', zh: '云服务' },
+  { type: 'APPLE_PAY', label: 'Apple Pay', zh: 'Apple 支付' },
+  { type: 'GAME_CENTER', label: 'Game Center', zh: '游戏中心' },
+  { type: 'DATA_PROTECTION', label: 'Data Protection', zh: '数据保护' },
   { type: 'HEALTHKIT', label: 'HealthKit', zh: '健康数据' },
   { type: 'HOMEKIT', label: 'HomeKit', zh: '家庭' },
   { type: 'NFC_TAG_READING', label: 'NFC Tag Reading', zh: 'NFC 标签读取' },
+  { type: 'NETWORK_EXTENSIONS', label: 'Network Extensions', zh: '网络扩展' },
+  { type: 'WIFI_ACCESSORY', label: 'Access Wi-Fi Information', zh: '访问 Wi-Fi 信息' },
+  { type: 'MAPS', label: 'Maps', zh: '地图' },
 ];
 
 /** 能力类型 → 官网英文显示名（未知能力转为空格分隔的英文词），列表徽章与错误提示使用 */
@@ -36,14 +43,7 @@ const CAPABILITY_LABELS = new Map(COMMON_CAPABILITIES.map((item) => [item.type, 
 
 /** 弹框勾选区展示的其余常见能力（结构同常用清单），编辑弹框中已启用但不在常用清单的能力会补进勾选区 */
 const EXTRA_CAPABILITIES = [
-  { type: 'IN_APP_PURCHASE', label: 'In-App Purchase', zh: 'App 内购买' },
-  { type: 'APPLE_PAY', label: 'Apple Pay', zh: 'Apple 支付' },
-  { type: 'GAME_CENTER', label: 'Game Center', zh: '游戏中心' },
-  { type: 'DATA_PROTECTION', label: 'Data Protection', zh: '数据保护' },
-  { type: 'MAPS', label: 'Maps', zh: '地图' },
   { type: 'WALLET', label: 'Wallet', zh: '钱包' },
-  { type: 'NETWORK_EXTENSIONS', label: 'Network Extensions', zh: '网络扩展' },
-  { type: 'WIFI_ACCESSORY', label: 'Access Wi-Fi Information', zh: '访问 Wi-Fi 信息' },
   { type: 'ICLOUD_VERSION', label: 'iCloud (Legacy)', zh: 'iCloud 旧版' },
 ];
 
