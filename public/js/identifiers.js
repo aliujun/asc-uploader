@@ -33,13 +33,26 @@ const COMMON_CAPABILITIES = [
 /** 能力类型 → 展示短名（未知能力原样返回），与弹框清单保持一致 */
 const CAPABILITY_LABELS = new Map(COMMON_CAPABILITIES.map((item) => [item.type, item.label]));
 
+/** 能力类型 → 展示短名（未知能力原样返回）：弹框可勾选的常用项 + 列表展示用的其余常见项 */
+const EXTRA_CAPABILITY_LABELS = {
+  IN_APP_PURCHASE: 'App 内购买',
+  APPLE_PAY: 'Apple Pay',
+  GAME_CENTER: 'Game Center',
+  DATA_PROTECTION: '数据保护',
+  MAPS: '地图',
+  WALLET: '钱包（Passbook）',
+  NETWORK_EXTENSIONS: '网络扩展',
+  WIFI_ACCESSORY: '无线配件配置',
+  ICLOUD_VERSION: 'iCloud（旧版）',
+};
+
 /**
  * 能力类型的展示文案
  * @param {string} capabilityType ASC capabilityType 枚举
  * @returns {string} 中文短名，未知时原样返回
  */
 function capabilityLabel(capabilityType) {
-  return CAPABILITY_LABELS.get(capabilityType) || capabilityType;
+  return CAPABILITY_LABELS.get(capabilityType) || EXTRA_CAPABILITY_LABELS[capabilityType] || capabilityType;
 }
 
 /**

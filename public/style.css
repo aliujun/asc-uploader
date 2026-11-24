@@ -503,6 +503,8 @@ button.danger {
 .badge {
 	display: inline-block;
 	padding: 2px 8px;
+	/* 上 2px 防换行堆叠粘连，右 4px 分隔相邻徽章 */
+	margin: 2px 4px 2px 0;
 	border-radius: 10px;
 	font-size: 11px;
 	color: #fff;
