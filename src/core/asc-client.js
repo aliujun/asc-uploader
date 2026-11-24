@@ -543,6 +543,32 @@ class AscClient {
   }
 
   /**
+   * 修改 App ID 名称（Bundle ID 标识与平台不可改，Apple 无对应端点）
+   * @param {string} bundleIdResourceId App ID 资源 ID
+   * @param {string} name 新名称
+   * @returns {Promise<Object>} ASC bundleIds 响应
+   */
+  async updateBundleName(bundleIdResourceId, name) {
+    const body = {
+      data: {
+        type: 'bundleIds',
+        id: bundleIdResourceId,
+        attributes: { name },
+      },
+    };
+    return this.request('PATCH', `/v1/bundleIds/${bundleIdResourceId}`, { body });
+  }
+
+  /**
+   * 关闭 App ID 的某项已启用能力
+   * @param {string} capabilityResourceId 能力资源 ID（从能力列表接口取得）
+   * @returns {Promise<null>} 成功返回 null（204）
+   */
+  async disableCapability(capabilityResourceId) {
+    return this.request('DELETE', `/v1/bundleIdCapabilities/${capabilityResourceId}`);
+  }
+
+  /**
    * 创建描述文件
    * @param {string} bundleIdResourceId App ID 资源 ID
    * @param {string[]} certificateIds 证书资源 ID 列表

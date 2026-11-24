@@ -185,6 +185,66 @@ router.post('/', async (req, res) => {
 });
 
 /**
+ * PATCH /api/identifiers/:id 编辑 App ID：改名与能力增量同步
+ * 请求体：{ configId, name?, add?: string[], remove?: string[] }
+ * 名称变更走改名接口；add 逐项启用；remove 先查能力列表换取资源 ID 后逐项关闭。
+ * @returns {void}
+ */
+router.patch('/:id', async (req, res) => {
+  const { configId, name, add, remove } = req.body || {};
+  const cleanName = (name || '').trim();
+  const addTypes = Array.isArray(add) ? add.filter(Boolean) : [];
+  const removeTypes = Array.isArray(remove) ? remove.filter(Boolean) : [];
+  if (!configId) {
+    sendError(res, 400, '缺少 ASC 配置');
+    return;
+  }
+  if (!cleanName && addTypes.length === 0 && removeTypes.length === 0) {
+    sendError(res, 400, '没有需要保存的修改');
+    return;
+  }
+  try {
+    const client = createClient(configId);
+    const results = [];
+    if (cleanName) {
+      await client.updateBundleName(req.params.id, cleanName);
+      results.push({ action: 'name', ok: true });
+    }
+    if (removeTypes.length > 0) {
+      // 关闭能力需要能力资源 ID：拉取当前能力列表建立 type → 资源 ID 映射
+      const capData = await client.listBundleIdCapabilities(req.params.id);
+      const typeToResourceId = new Map((capData.data || []).map((cap) => [(cap.attributes || {}).capabilityType, cap.id]));
+      for (const capabilityType of removeTypes) {
+        const capResourceId = typeToResourceId.get(capabilityType);
+        if (!capResourceId) {
+          results.push({ action: 'remove', capabilityType, ok: true, note: '该能力未启用，无需关闭' });
+          continue;
+        }
+        try {
+          await client.disableCapability(capResourceId);
+          results.push({ action: 'remove', capabilityType, ok: true });
+        } catch (err) {
+          results.push({ action: 'remove', capabilityType, ok: false, error: err.message });
+        }
+      }
+    }
+    for (const capabilityType of addTypes) {
+      // Sign in with Apple 必须携带 options，否则 Apple 拒绝；默认非主 App ID
+      const options = capabilityType === 'APPLE_ID_AUTH' ? { isPrimaryAppId: false } : undefined;
+      try {
+        await client.enableCapability(req.params.id, capabilityType, options);
+        results.push({ action: 'add', capabilityType, ok: true });
+      } catch (err) {
+        results.push({ action: 'add', capabilityType, ok: false, error: err.message });
+      }
+    }
+    res.json({ results });
+  } catch (err) {
+    sendError(res, 502, err.message);
+  }
+});
+
+/**
  * DELETE /api/identifiers/:id?configId= 删除 App ID（连带使关联描述文件失效，不可恢复）
  * @returns {void}
  */

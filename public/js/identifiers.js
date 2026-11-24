@@ -6,13 +6,14 @@ import {
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = 'App ID 管理';
 
-/** 组件状态：configs 供下拉，identifiers 为当前配置下的 App ID 列表，capsSupported 表示当前密钥能否读取能力列表 */
+/** 组件状态：configs 供下拉，identifiers 为当前配置下的 App ID 列表，capsSupported 表示当前密钥能否读取能力列表，editing 为正在编辑的条目 */
 const state = {
   configs: [],
   identifiers: [],
   configId: '',
   resourcesLoaded: false,
   capsSupported: true,
+  editing: null,
 };
 
 /** 列表加载请求序号（防快速切换配置时的响应竞态） */
@@ -128,6 +129,29 @@ export const template = `<section id="tab-identifiers" class="tab-panel">
                     </div>
                 </div>
             </div>
+
+            <div id="identifier-edit-modal" class="modal hidden">
+                <div class="modal-box">
+                    <h3>编辑 App ID</h3>
+                    <div class="form-row">
+                        <label>Bundle ID（注册后不可修改）</label>
+                        <input id="identifier-edit-bundle" disabled>
+                    </div>
+                    <div class="form-row">
+                        <label>名称<span class="req">*</span></label>
+                        <input id="identifier-edit-name" placeholder="仅用于在 Apple 后台识别" autocomplete="off">
+                    </div>
+                    <div class="form-row">
+                        <label>能力（勾选启用、取消关闭，保存后生效）</label>
+                        <div id="identifier-edit-caps" class="checkbox-list"></div>
+                    </div>
+                    <p id="identifier-edit-error" class="error hidden"></p>
+                    <div class="form-actions">
+                        <button id="btn-identifier-edit-submit" class="primary">保存修改</button>
+                        <button id="btn-identifier-edit-cancel">取消</button>
+                    </div>
+                </div>
+            </div>
         </section>`;
 
 /**
@@ -173,8 +197,12 @@ function renderIdentifierList() {
         <div class="meta">${escapeHtml(item.identifier || '-')}</div>
       </div>
       <div class="actions">
+        <button class="small" data-act="edit">编辑</button>
         <button class="small danger" data-act="delete">删除</button>
       </div>`;
+    row.querySelector('[data-act="edit"]').onclick = () => {
+      openEditModal(item);
+    };
     row.querySelector('[data-act="delete"]').onclick = (event) => {
       const label = item.name || item.id;
       const goOn = confirm(`确定删除 App ID「${label}」（${item.identifier || '-'}）？\n`
@@ -251,6 +279,92 @@ async function openAddModal() {
 function closeAddModal() {
   $('identifier-add-modal').classList.add('hidden');
   $('identifier-add-error').classList.add('hidden');
+}
+
+/**
+ * 打开编辑弹框：回填 Bundle ID（只读展示）与名称，渲染能力勾选区（常用项 + 当前已启用的其余能力，已启用打勾）
+ * @param {Object} item 当前编辑的 App ID 条目
+ * @returns {void}
+ */
+function openEditModal(item) {
+  state.editing = item;
+  $('identifier-edit-bundle').value = item.identifier || '-';
+  $('identifier-edit-name').value = item.name || '';
+  const capWrap = $('identifier-edit-caps');
+  capWrap.innerHTML = '';
+  const current = new Set(item.capabilities || []);
+  // 勾选清单 = 常用 8 项在前，再补当前已启用但不在常用清单里的能力（避免遗漏展示）
+  const types = COMMON_CAPABILITIES.map((cap) => cap.type)
+    .concat([...current].filter((type) => !CAPABILITY_LABELS.has(type)));
+  types.forEach((type) => {
+    const label = document.createElement('label');
+    label.innerHTML = `<input type="checkbox" value="${escapeHtml(type)}"${current.has(type) ? ' checked' : ''}> ${escapeHtml(capabilityLabel(type))}`;
+    capWrap.appendChild(label);
+  });
+  $('identifier-edit-error').classList.add('hidden');
+  $('identifier-edit-modal').classList.remove('hidden');
+}
+
+/**
+ * 关闭编辑弹窗并复位编辑状态
+ * @returns {void}
+ */
+function closeEditModal() {
+  state.editing = null;
+  $('identifier-edit-modal').classList.add('hidden');
+  $('identifier-edit-error').classList.add('hidden');
+}
+
+/**
+ * 提交编辑：与列表数据做 diff 后增量提交（改名 + 补开/关闭能力），无变更时拦截不发请求；
+ * 部分能力操作失败时弹窗保留并展示失败详情（其余修改已生效，不可回滚）
+ * @returns {Promise<void>}
+ */
+async function submitEdit() {
+  const item = state.editing;
+  if (!item) {
+    return;
+  }
+  const errorEl = $('identifier-edit-error');
+  const name = $('identifier-edit-name').value.trim();
+  if (!name) {
+    toast('名称不能为空', true);
+    $('identifier-edit-name').focus();
+    return;
+  }
+  const selected = new Set(Array.from($('identifier-edit-caps').querySelectorAll('input:checked')).map((input) => input.value));
+  const current = new Set(item.capabilities || []);
+  const add = [...selected].filter((type) => !current.has(type));
+  const remove = [...current].filter((type) => !selected.has(type));
+  const nameChanged = name !== (item.name || '');
+  if (!nameChanged && add.length === 0 && remove.length === 0) {
+    toast('没有需要保存的修改');
+    return;
+  }
+  try {
+    await withLoading($('btn-identifier-edit-submit'), '保存中...', async () => {
+      const data = await api(`/api/identifiers/${encodeURIComponent(item.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configId: state.configId, name: nameChanged ? name : '', add, remove }),
+      });
+      await loadIdentifierList();
+      const failed = (data.results || []).filter((result) => !result.ok);
+      if (failed.length === 0) {
+        closeEditModal();
+        toast('修改已保存');
+        return;
+      }
+      const detail = failed
+        .map((result) => `${result.action === 'name' ? '改名' : capabilityLabel(result.capabilityType)}：${result.error || '失败'}`)
+        .join('；');
+      errorEl.textContent = `以下修改未成功（其余已生效）：${detail}`;
+      errorEl.classList.remove('hidden');
+    });
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.classList.remove('hidden');
+  }
 }
 
 /**
@@ -376,6 +490,10 @@ export function init() {
     submitAdd();
   });
   $('btn-identifier-add-cancel').addEventListener('click', closeAddModal);
+  $('btn-identifier-edit-submit').addEventListener('click', () => {
+    submitEdit();
+  });
+  $('btn-identifier-edit-cancel').addEventListener('click', closeEditModal);
 }
 
 /**
