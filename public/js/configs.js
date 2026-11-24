@@ -1,6 +1,6 @@
 /* 配置管理组件：网络代理设置、API 配置增删改验、配置表单弹窗 */
 import {
-  $, api, bindEnter, escapeHtml, fillSelect, fmtSize, toast, withLoading,
+  $, api, bindEnter, confirmModal, escapeHtml, fillSelect, fmtSize, toast, withLoading,
 } from './common.js';
 import { onConfigsChanged } from './upload.js';
 import { loadConnectivityInfo } from './connectivity.js';
@@ -172,7 +172,12 @@ function bindConfigAction(item, action, handler) {
  * @returns {Promise<void>}
  */
 async function deleteConfig(config) {
-  if (!confirm(`确定删除配置「${config.name}」吗？其 .p8 密钥文件将一并删除。`)) {
+  const goOn = await confirmModal({
+    title: '删除配置',
+    message: `确定删除配置「${config.name}」吗？其 .p8 密钥文件将一并删除。`,
+    confirmText: '删除',
+  });
+  if (!goOn) {
     return;
   }
   try {
@@ -362,10 +367,16 @@ export function init() {
   });
 
   $('btn-save-proxy').onclick = () => withLoading($('btn-save-proxy'), '保存中...', saveSettings);
-  $('btn-clear-ipa-cache').onclick = () => {
-    if (confirm('确定清理本地 IPA 缓存吗？进行中任务引用的文件会被保留。')) {
-      withLoading($('btn-clear-ipa-cache'), '清理中...', clearIpaCache);
+  $('btn-clear-ipa-cache').onclick = async () => {
+    const goOn = await confirmModal({
+      title: '清理 IPA 缓存',
+      message: '确定清理本地 IPA 缓存吗？进行中任务引用的文件会被保留。',
+      confirmText: '清理',
+    });
+    if (!goOn) {
+      return;
     }
+    withLoading($('btn-clear-ipa-cache'), '清理中...', clearIpaCache);
   };
   $('btn-detect-proxy').onclick = () => withLoading($('btn-detect-proxy'), '检测中...', detectProxy);
   $('btn-clear-proxy').onclick = () => withLoading($('btn-clear-proxy'), '清空中...', clearProxy);

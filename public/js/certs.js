@@ -1,6 +1,6 @@
 /* 证书工具组件：CSR 生成、p12 导入提取、.cer 合成 p12、本地私钥管理 */
 import { gotoIssue } from './asc-certs.js';
-import { $, api, bindEnter, downloadFile, escapeHtml, fmtSize, toast, withLoading } from './common.js';
+import { $, api, bindEnter, confirmModal, downloadFile, escapeHtml, fmtSize, toast, withLoading } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '证书工具';
@@ -173,9 +173,14 @@ export async function loadCertKeys() {
           <div class="meta">${escapeHtml(k.remark ? `${k.commonName} · ` : '')}${new Date(k.createdAt).toLocaleString()} · ${k.keyId.slice(0, 8)}…</div>
         </div>
         <button class="small danger" data-key="${k.keyId}">删除</button>`;
-			row.querySelector('[data-key]').onclick = event => {
+			row.querySelector('[data-key]').onclick = async (event) => {
 				const label = k.remark || k.commonName;
-				if (!confirm(`确定删除私钥「${label}」？删除后无法再为它合成 p12。`)) {
+				const goOn = await confirmModal({
+					title: '删除私钥',
+					message: `确定删除私钥「${label}」？删除后无法再为它合成 p12。`,
+					confirmText: '删除',
+				});
+				if (!goOn) {
 					return;
 				}
 				withLoading(event.currentTarget, '删除中...', async () => {
@@ -234,7 +239,12 @@ async function generateP12() {
 			body: JSON.stringify({ cerContent })
 		});
 		if (info.isDevelopmentCert) {
-			const goOn = confirm('检测到这是 Apple Development（开发）证书，仅适用于真机调试。\n' + '发布 App Store / Ad Hoc 版本需要 Apple Distribution（分发）证书。\n仍要继续合成 p12 吗？');
+			const goOn = await confirmModal({
+				title: '证书类型提示',
+				message: '检测到这是 Apple Development（开发）证书，仅适用于真机调试。\n发布 App Store / Ad Hoc 版本需要 Apple Distribution（分发）证书。\n仍要继续合成 p12 吗？',
+				confirmText: '继续合成',
+				danger: false,
+			});
 			if (!goOn) {
 				return;
 			}

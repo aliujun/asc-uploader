@@ -1,6 +1,6 @@
 /* App ID 管理组件：Identifiers 列表（含已启用能力徽章）、新建显式 App ID（可勾选常用能力）、删除 */
 import {
-  $, api, escapeHtml, fillSelect, toast, withLoading,
+  $, api, confirmModal, escapeHtml, fillSelect, toast, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -257,10 +257,13 @@ function renderIdentifierList() {
     row.querySelector('[data-act="edit"]').onclick = () => {
       openEditModal(item);
     };
-    row.querySelector('[data-act="delete"]').onclick = (event) => {
+    row.querySelector('[data-act="delete"]').onclick = async (event) => {
       const label = item.name || item.id;
-      const goOn = confirm(`确定删除 App ID「${label}」（${item.identifier || '-'}）？\n`
-        + '删除后立即生效且不可恢复，使用该 App ID 的描述文件会随之失效。');
+      const goOn = await confirmModal({
+        title: '删除 App ID',
+        message: `确定删除 App ID「${label}」（${item.identifier || '-'}）？\n删除后立即生效且不可恢复，使用该 App ID 的描述文件会随之失效。`,
+        confirmText: '删除',
+      });
       if (!goOn) {
         return;
       }

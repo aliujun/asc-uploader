@@ -279,6 +279,98 @@ export function bindModalBackdropClose() {
   });
 }
 
+/** 公共确认弹窗的元素与结算回调（懒创建，全局唯一实例） */
+let confirmModalCtx = null;
+
+/**
+ * 确保公共确认弹窗 DOM 存在（首次调用时注入 body 末尾，样式复用全局 modal 体系）
+ * @returns {Object} 弹窗元素与结算回调的引用
+ */
+function ensureConfirmModal() {
+  if (confirmModalCtx) {
+    return confirmModalCtx;
+  }
+  const modal = document.createElement('div');
+  modal.className = 'modal confirm-modal hidden';
+  modal.innerHTML = `
+    <div class="modal-box">
+      <h3 class="confirm-title"></h3>
+      <p class="confirm-message muted"></p>
+      <div class="form-actions">
+        <button class="confirm-ok danger">确认</button>
+        <button class="confirm-cancel">取消</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  const ctx = {
+    modal,
+    titleEl: modal.querySelector('.confirm-title'),
+    messageEl: modal.querySelector('.confirm-message'),
+    okBtn: modal.querySelector('.confirm-ok'),
+    settle: null,
+  };
+  const finish = (result) => {
+    if (ctx.settle) {
+      ctx.settle(result);
+    }
+  };
+  ctx.okBtn.addEventListener('click', () => finish(true));
+  modal.querySelector('.confirm-cancel').addEventListener('click', () => finish(false));
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) {
+      finish(false);
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (modal.classList.contains('hidden')) {
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      finish(false);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      finish(true);
+    }
+  });
+  confirmModalCtx = ctx;
+  return ctx;
+}
+
+/**
+ * 公共确认弹窗（替代原生 confirm，样式与站内弹窗一致；Enter 确认、Esc 或遮罩点击取消）
+ * @param {Object} options 配置项
+ * @param {string} [options.title='确认操作'] 弹窗标题
+ * @param {string} [options.message=''] 提示内容（\n 会换行显示）
+ * @param {string} [options.confirmText='确认'] 确认按钮文案
+ * @param {boolean} [options.danger=true] 是否危险操作（确认按钮红色，否则用主色）
+ * @returns {Promise<boolean>} 确认返回 true，取消返回 false
+ */
+export function confirmModal(options) {
+  const { title = '确认操作', message = '', confirmText = '确认', danger = true } = options || {};
+  const ctx = ensureConfirmModal();
+  return new Promise((resolve) => {
+    // 后到的确认请求直接顶掉前一个（前一个按取消结算），避免双重弹窗叠加
+    if (ctx.settle) {
+      ctx.settle(false);
+    }
+    ctx.settle = (result) => {
+      ctx.settle = null;
+      ctx.modal.classList.add('hidden');
+      resolve(result);
+    };
+    ctx.titleEl.textContent = title;
+    ctx.messageEl.textContent = message;
+    ctx.okBtn.textContent = confirmText;
+    ctx.okBtn.classList.toggle('danger', danger);
+    ctx.okBtn.classList.toggle('primary', !danger);
+    ctx.modal.classList.remove('hidden');
+    ctx.okBtn.focus();
+  });
+}
+
 /**
  * 计算剩余有效天数
  * @param {string} expirationDate 到期时间（ISO 字符串）
@@ -406,12 +498,12 @@ document.addEventListener('click', (event) => {
   });
 });
 
-// Escape 统一关闭：下拉 → 弹窗 → ⓘ 提示（原版两处监听合并，顺序保持）
+// Escape 统一关闭：下拉 → 弹窗（公共确认弹窗除外，由 confirmModal 自行结算）→ ⓘ 提示（原版两处监听合并，顺序保持）
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') {
     return;
   }
   document.querySelectorAll('.dropdown-menu:not(.hidden)').forEach((m) => m.classList.add('hidden'));
-  document.querySelectorAll('.modal:not(.hidden)').forEach((modal) => modal.classList.add('hidden'));
+  document.querySelectorAll('.modal:not(.hidden):not(.confirm-modal)').forEach((modal) => modal.classList.add('hidden'));
   closeAllHints();
 });

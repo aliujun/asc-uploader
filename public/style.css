@@ -706,6 +706,13 @@ table.builds td.conn-error {
 	gap: 10px;
 	margin-top: 14px;
 }
+
+/* 公共确认弹窗（confirmModal）的消息区：保留 \n 换行 */
+.modal-box .confirm-message {
+	margin: 14px 0 4px;
+	line-height: 1.7;
+	white-space: pre-line;
+}
 textarea {
 	resize: none;
 }

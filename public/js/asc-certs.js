@@ -1,6 +1,6 @@
 /* 证书管理组件：ASC API 证书列表、签发（自动合成 p12 下载）、吊销；到期监控统一在到期总览页 */
 import {
-  $, api, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, platformText, toast, typeLabel, withLoading,
+  $, api, confirmModal, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, platformText, toast, typeLabel, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -302,8 +302,11 @@ async function submitIssue() {
  */
 async function revokeCert(cert, button) {
   const label = cert.displayName || cert.serialNumber || cert.id;
-  const goOn = confirm(`确定吊销证书「${label}」（序列号 ${cert.serialNumber || '-'}）？\n`
-    + '吊销后立即失效且不可恢复，使用该证书签名的描述文件将随之失效。');
+  const goOn = await confirmModal({
+    title: '吊销证书',
+    message: `确定吊销证书「${label}」（序列号 ${cert.serialNumber || '-'}）？\n吊销后立即失效且不可恢复，使用该证书签名的描述文件将随之失效。`,
+    confirmText: '吊销',
+  });
   if (!goOn) {
     return;
   }

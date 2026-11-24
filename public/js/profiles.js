@@ -1,6 +1,6 @@
 /* 描述文件组件：Profiles 列表、到期看板、下载 .mobileprovision、删除、生成 App Store / Ad Hoc / 开发描述文件 */
 import {
-  $, api, daysLeft, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, toast, typeLabel, withLoading,
+  $, api, confirmModal, daysLeft, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, toast, typeLabel, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -234,10 +234,13 @@ function renderProfileList() {
         <button class="small danger" data-act="delete">删除</button>
       </div>`;
     row.querySelector('[data-act="download"]').onclick = (event) => withLoading(event.currentTarget, '下载中...', () => downloadProfile(profile));
-    row.querySelector('[data-act="delete"]').onclick = (event) => {
+    row.querySelector('[data-act="delete"]').onclick = async (event) => {
       const label = profile.name || profile.id;
-      const goOn = confirm(`确定删除描述文件「${label}」（${profile.bundleId || '-'}）？\n`
-        + '删除后立即失效且不可恢复，使用它的打包签名会失败，但可以重新生成。');
+      const goOn = await confirmModal({
+        title: '删除描述文件',
+        message: `确定删除描述文件「${label}」（${profile.bundleId || '-'}）？\n删除后立即失效且不可恢复，使用它的打包签名会失败，但可以重新生成。`,
+        confirmText: '删除',
+      });
       if (!goOn) {
         return;
       }

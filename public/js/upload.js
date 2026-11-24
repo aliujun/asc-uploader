@@ -1,6 +1,6 @@
 /* 上传页组件：IPA 选择/拖拽、本地进度、提交任务（SSE 实时进度）、历史任务 */
 import {
-  $, api, daysLeft, escapeHtml, formatDate, fmtSize, toast, withLoading,
+  $, api, confirmModal, daysLeft, escapeHtml, formatDate, fmtSize, toast, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -325,7 +325,12 @@ async function submitTask(ignorePrecheckWarning = false) {
     resetUploadSelection();
   } catch (err) {
     if (err.isPrecheckWarning) {
-      const confirmed = confirm(`【签名预检提示】\n${err.message}\n\n是否忽略此警告并继续强制提交上传？`);
+      const confirmed = await confirmModal({
+        title: '签名预检提示',
+        message: `${err.message}\n\n是否忽略此警告并继续强制提交上传？`,
+        confirmText: '继续上传',
+        danger: false,
+      });
       if (confirmed) {
         await submitTask(true);
         return;
@@ -499,9 +504,14 @@ export async function loadTaskHistory() {
       btn.onclick = () => withLoading(btn, '重试中...', () => retryTask(btn.dataset.retry));
     });
     wrap.querySelectorAll('[data-remove]').forEach((btn) => {
-      btn.onclick = (event) => {
+      btn.onclick = async (event) => {
         const name = btn.dataset.name || '该任务';
-        if (!confirm(`确定删除任务「${name}」吗？其本地 IPA 缓存将一并删除。`)) {
+        const goOn = await confirmModal({
+          title: '删除任务',
+          message: `确定删除任务「${name}」吗？其本地 IPA 缓存将一并删除。`,
+          confirmText: '删除',
+        });
+        if (!goOn) {
           return;
         }
         withLoading(event.currentTarget, '删除中...', async () => {
@@ -543,12 +553,11 @@ async function retryTask(taskId) {
  * @returns {Promise<void>}
  */
 async function abortTask(taskId) {
-  const confirmed = confirm(
-    '确定中断该上传任务吗？\n\n' +
-    '· 中断仅停止本地上传流程，已上传的分块将被作废\n' +
-    '· 尚未向 Apple 提交校验，不会生成 build，也不占用版本号\n' +
-    '· 中断后任务标记为“已取消”，本地 IPA 缓存保留，可重新重试'
-  );
+  const confirmed = await confirmModal({
+    title: '中断上传任务',
+    message: '确定中断该上传任务吗？\n\n· 中断仅停止本地上传流程，已上传的分块将被作废\n· 尚未向 Apple 提交校验，不会生成 build，也不占用版本号\n· 中断后任务标记为“已取消”，本地 IPA 缓存保留，可重新重试',
+    confirmText: '中断任务',
+  });
   if (!confirmed) {
     return;
   }
