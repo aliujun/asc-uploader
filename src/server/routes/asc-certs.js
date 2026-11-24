@@ -1,13 +1,8 @@
 'use strict';
 
-const path = require('path');
-const fs = require('fs').promises;
-
 const express = require('express');
 const { createClient, parsePaging } = require('../../core/asc-client');
 const certs = require('../../core/certs');
-const store = require('../../config/store');
-const paths = require('../../config/paths');
 
 const router = express.Router();
 
@@ -19,41 +14,6 @@ const FALLBACK_CERT_TYPES = {
   DISTRIBUTION: 'IOS_DISTRIBUTION',
   DEVELOPMENT: 'IOS_DEVELOPMENT',
 };
-
-/** 文件名非法字符清洗（Windows 保留字符），与前端命名规则一致 */
-const UNSAFE_FILENAME_RE = /[\\/:*?"<>|]/g;
-
-/**
- * 生成本地时间戳（yyyyMMdd-HHmmss），用于备份文件名
- * @returns {string} 形如 20260131-153001 的时间戳
- */
-function timestamp() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-}
-
-/**
- * 将签发合成的 p12 自动备份到数据目录 backups 子目录。
- * 备份失败只记录日志，不阻塞签发响应（证书已在 Apple 签发，响应必须先送达）。
- * @param {Buffer} p12Buffer p12 二进制内容
- * @param {string} configId 配置 ID（用于取配置名拼文件名）
- * @param {string} certificateType 证书类型枚举（dev/release 后缀）
- * @returns {Promise<void>}
- */
-async function backupP12(p12Buffer, configId, certificateType) {
-  try {
-    const config = await store.findById(configId);
-    const configName = ((config && config.name) || '未命名配置').replace(UNSAFE_FILENAME_RE, '');
-    const typeSuffix = /_DEVELOPMENT$/.test(certificateType || '') ? 'dev' : 'release';
-    const filename = `${configName}_${typeSuffix}_${timestamp()}.p12`;
-    await paths.ensureDirs();
-    await fs.writeFile(path.join(paths.getDir('backups'), filename), p12Buffer);
-    console.log(`[p12 备份] 已存档：${filename}`);
-  } catch (err) {
-    console.log(`[p12 备份] 失败（不影响签发）：${err.message}`);
-  }
-}
 
 /**
  * 统一错误响应
@@ -169,9 +129,6 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  // 自动备份到本地备份目录（失败不影响响应）
-  await backupP12(p12Buffer, configId, certificateType);
-
   res.setHeader('Content-Type', 'application/x-pkcs12');
   res.setHeader('Content-Disposition', 'attachment; filename="certificate-issued.p12"');
   res.send(p12Buffer);
@@ -201,82 +158,93 @@ router.delete('/:certId', async (req, res) => {
 });
 
 /**
- * GET /api/asc-certs/backups 获取本地已自动备份的 p12 证书文件列表
+ * GET /api/asc-certs/:certId/match-key?configId= 按公钥配对自动匹配签发该证书的本地私钥
  * @returns {void}
  */
-router.get('/backups', async (req, res) => {
+router.get('/:certId/match-key', async (req, res) => {
+  const { configId } = req.query;
+  const { certId } = req.params;
+  if (!configId) {
+    sendError(res, 400, '缺少 configId 参数');
+    return;
+  }
+  if (!certId) {
+    sendError(res, 400, '缺少证书 ID');
+    return;
+  }
   try {
-    await paths.ensureDirs();
-    const backupDir = paths.getDir('backups');
-    const files = await fs.readdir(backupDir);
-    const p12Files = files.filter((f) => f.toLowerCase().endsWith('.p12'));
-    const list = [];
-    for (const file of p12Files) {
-      try {
-        const stat = await fs.stat(path.join(backupDir, file));
-        list.push({
-          filename: file,
-          sizeBytes: stat.size,
-          createdAt: stat.mtime.toISOString(),
-        });
-      } catch {
-        // 单个文件读取失败跳过
-      }
+    const data = await createClient(configId).listCertificates();
+    const target = (data.data || []).find((item) => item.id === certId);
+    if (!target) {
+      sendError(res, 404, '证书不存在（可能已被吊销或删除）');
+      return;
     }
-    // 按生成时间倒序（最新生成的在前）
-    list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    res.json({ backups: list });
+    const keys = await certs.listKeys();
+    const keyId = await certs.matchKeyForCertificate(target.attributes.certificateContent, keys);
+    res.json({ keyId });
   } catch (err) {
-    sendError(res, 500, `获取备份列表失败：${err.message}`);
+    sendError(res, 502, err.message);
   }
 });
 
 /**
- * GET /api/asc-certs/backups/:filename 下载本地已备份的 p12 文件
+ * POST /api/asc-certs/:certId/p12 重新合成并下载指定证书的 .p12。
+ * 流程：从 ASC 拉取证书内容 → 未指定私钥时按公钥自动匹配 → 与本地私钥合成 p12 返回二进制。
  * @returns {void}
  */
-router.get('/backups/:filename', async (req, res) => {
-  const filename = String(req.params.filename || '');
-  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-    sendError(res, 400, '非法的文件名');
+router.post('/:certId/p12', async (req, res) => {
+  const { configId, keyId, password } = req.body || {};
+  const { certId } = req.params;
+  if (!configId) {
+    sendError(res, 400, '缺少 ASC 配置');
     return;
   }
-  const filePath = path.join(paths.getDir('backups'), filename);
+  const p12Password = password || '123456';
+  if (p12Password.length < 6) {
+    sendError(res, 400, 'p12 导出密码至少 6 位');
+    return;
+  }
+
+  let certificateContent = '';
   try {
-    const stat = await fs.stat(filePath);
-    if (!stat.isFile()) {
-      sendError(res, 404, '备份文件不存在');
+    const data = await createClient(configId).listCertificates();
+    const target = (data.data || []).find((item) => item.id === certId);
+    if (!target) {
+      sendError(res, 404, '证书不存在（可能已被吊销或删除）');
       return;
     }
-    const buffer = await fs.readFile(filePath);
+    certificateContent = target.attributes.certificateContent || '';
+  } catch (err) {
+    sendError(res, 502, err.message);
+    return;
+  }
+  if (!certificateContent) {
+    sendError(res, 502, '未能获取证书内容，请稍后重试');
+    return;
+  }
+
+  // 未指定私钥时按公钥配对自动匹配；仍无法确定时要求前端弹框手动指定
+  let effectiveKeyId = keyId || '';
+  if (!effectiveKeyId) {
+    try {
+      effectiveKeyId = await certs.matchKeyForCertificate(certificateContent, await certs.listKeys());
+    } catch (err) {
+      sendError(res, 500, `自动匹配私钥失败：${err.message}`);
+      return;
+    }
+  }
+  if (!effectiveKeyId) {
+    sendError(res, 422, '未找到与该证书配对的本地私钥，请手动选择签发该证书时使用的私钥');
+    return;
+  }
+
+  try {
+    const p12Buffer = await certs.buildP12(effectiveKeyId, certificateContent, p12Password);
     res.setHeader('Content-Type', 'application/x-pkcs12');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    res.send(buffer);
-  } catch {
-    sendError(res, 404, '备份文件不存在或无法读取');
-  }
-});
-
-/**
- * DELETE /api/asc-certs/backups/:filename 删除本地指定的 p12 备份文件
- * @returns {void}
- */
-router.delete('/backups/:filename', async (req, res) => {
-  const filename = String(req.params.filename || '');
-  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-    sendError(res, 400, '非法的文件名');
-    return;
-  }
-  const filePath = path.join(paths.getDir('backups'), filename);
-  try {
-    await fs.unlink(filePath);
-    res.json({ ok: true });
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(`certificate-${certId}.p12`)}"`);
+    res.send(p12Buffer);
   } catch (err) {
-    if (err.code === 'ENOENT') {
-      sendError(res, 404, '备份文件不存在');
-      return;
-    }
-    sendError(res, 500, `删除备份失败：${err.message}`);
+    sendError(res, 400, err.message);
   }
 });
 

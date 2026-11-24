@@ -1,18 +1,19 @@
 /* 证书管理组件：ASC API 证书列表、签发（自动合成 p12 下载）、吊销；到期监控统一在到期总览页 */
 import {
-  $, api, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, fmtSize, platformText, toast, typeLabel, withLoading,
+  $, api, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, platformText, toast, typeLabel, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '证书管理';
 
-/** 组件状态：configs/keys 供下拉与文件命名，certs 为当前配置下的证书列表 */
+/** 组件状态：configs/keys 供下拉与文件命名，certs 为当前配置下的证书列表，p12Cert 为当前待下载 p12 的证书 */
 const state = {
   configs: [],
   keys: [],
   certs: [],
   configId: '',
   resourcesLoaded: false,
+  p12Cert: null,
 };
 
 /** 页面模板 */
@@ -31,16 +32,12 @@ export const template = `<section id="tab-asc-certs" class="tab-panel">
             </div>
 
             <div class="card">
-                <h2>本地 p12 备份管理 <button id="btn-backup-refresh" class="small">刷新</button></h2>
-                <p class="muted">通过本助手在线签发的 .p12 会自动在本地备份目录中存档，若浏览器未下载成功或更换打包环境，可随时在此重新下载。</p>
-                <div id="asc-backup-list" class="config-list"><span class="muted">正在加载备份列表...</span></div>
-            </div>
-
-            <div class="card">
                 <h2>说明</h2>
                 <ol class="steps">
                     <li>签发需要：<b>ASC 配置</b>（配置管理页中已验证的）+ <b>本地私钥</b>（证书工具页生成或导入的）。</li>
                     <li>签发时工具会用所选私钥自动生成 CSR 并提交 Apple，签发成功后自动合成 .p12 供下载，无需手动上传 CSR、下载 .cer。</li>
+                    <li>列表中的「下载 .p12」可随时重新合成证书文件（Apple 在线证书 + 本地私钥实时合成，不依赖本地备份），工具会按公钥自动匹配签发该证书的私钥。</li>
+                    <li>重新合成要求签发该证书的私钥仍在本地私钥列表中，请妥善保管私钥（与 .p8 API 密钥同等重要），删除后将无法重新合成。</li>
                     <li>每种证书类型在 Apple 有数量上限（如 iOS Distribution 最多 3 个），到期或不再使用时请先吊销旧证书。</li>
                     <li>吊销立即生效且不可恢复，使用该证书签名的描述文件会随之失效。</li>
                     <li>如果没有 API 密钥（.p8），也可以前往「证书工具」页走传统手动 CSR / .cer 模式。</li>
@@ -81,6 +78,31 @@ export const template = `<section id="tab-asc-certs" class="tab-panel">
                     <div class="form-actions">
                         <button id="btn-asc-issue-submit" class="primary">签发并下载 .p12</button>
                         <button id="btn-asc-issue-cancel">取消</button>
+                    </div>
+                </div>
+            </div>
+            <div id="asc-p12-modal" class="modal hidden">
+                <div class="modal-box">
+                    <h3>下载 .p12（重新合成）</h3>
+                    <div class="form-row">
+                        <label>证书</label>
+                        <input id="asc-p12-cert" disabled>
+                    </div>
+                    <div class="form-row">
+                        <label>本地私钥<span class="req">*</span></label>
+                        <select id="asc-p12-key">
+                            <option value="">请选择私钥</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>.p12 导出密码</label>
+                        <input id="asc-p12-password" type="password" placeholder="不填默认 123456" autocomplete="new-password">
+                    </div>
+                    <p id="asc-p12-hint" class="muted hidden"></p>
+                    <p id="asc-p12-error" class="error hidden"></p>
+                    <div class="form-actions">
+                        <button id="btn-asc-p12-submit" class="primary">合成并下载</button>
+                        <button id="btn-asc-p12-cancel">取消</button>
                     </div>
                 </div>
             </div>
@@ -132,8 +154,10 @@ function renderCertList() {
         <div class="meta">序列号 ${escapeHtml(cert.serialNumber || '-')} · 到期 ${escapeHtml(formatDate(cert.expirationDate))}</div>
       </div>
       <div class="actions">
+        <button class="small" data-act="download-p12">下载 .p12</button>
         <button class="small danger">吊销</button>
       </div>`;
+    row.querySelector('[data-act="download-p12"]').onclick = () => openP12Modal(cert);
     row.querySelector('.danger').onclick = (e) => revokeCert(cert, e.currentTarget);
     wrap.appendChild(row);
   });
@@ -259,11 +283,10 @@ async function submitIssue() {
       const nameParts = [safeRemark, typeLabelPart].filter(Boolean).join('-');
       await downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate-issued.p12', blob);
       closeIssueModal();
-      toast('证书已签发，.p12 已合成并下载（同时已自动备份）');
+      toast('证书已签发，.p12 已合成并下载');
       state.configId = form.configId;
       $('asc-cert-config').value = form.configId;
       loadCertList();
-      loadBackupList();
     });
   } catch (err) {
     errorEl.textContent = err.message;
@@ -325,78 +348,107 @@ export async function gotoIssue(keyId) {
 }
 
 /**
- * 加载并渲染本地 p12 备份列表
+ * 打开「下载 .p12」弹框：加载私钥下拉并按公钥自动匹配签发该证书的私钥（成功时预选）
+ * @param {Object} cert 证书条目
  * @returns {Promise<void>}
  */
-async function loadBackupList() {
-  const wrap = $('asc-backup-list');
+async function openP12Modal(cert) {
   try {
-    const data = await api('/api/asc-certs/backups');
-    const backups = Array.isArray(data.backups) ? data.backups : [];
-    if (backups.length === 0) {
-      wrap.innerHTML = '<span class="muted">暂无本地备份文件</span>';
-      return;
-    }
-    wrap.innerHTML = '';
-    backups.forEach((b) => {
-      const row = document.createElement('div');
-      row.className = 'config-item';
-      row.innerHTML = `
-        <div>
-          <span class="name">${escapeHtml(b.filename)}</span>
-          <span class="badge ok">${fmtSize(b.sizeBytes)}</span>
-          <div class="meta">备份时间：${escapeHtml(new Date(b.createdAt).toLocaleString())}</div>
-        </div>
-        <div class="actions">
-          <button class="small" data-act="download">重新下载</button>
-          <button class="small danger" data-act="delete">删除</button>
-        </div>`;
-      row.querySelector('[data-act="download"]').onclick = () => downloadBackup(b.filename);
-      row.querySelector('[data-act="delete"]').onclick = (e) => deleteBackup(b.filename, e.currentTarget);
-      wrap.appendChild(row);
-    });
-  } catch (err) {
-    wrap.innerHTML = `<span class="error">加载备份失败：${escapeHtml(err.message)}</span>`;
-  }
-}
-
-/**
- * 下载已备份的 p12 文件
- * @param {string} filename 备份文件名
- * @returns {Promise<void>}
- */
-async function downloadBackup(filename) {
-  try {
-    const response = await fetch(`/api/asc-certs/backups/${encodeURIComponent(filename)}`);
-    if (!response.ok) {
-      throw new Error(`下载失败（HTTP ${response.status}）`);
-    }
-    const blob = await response.blob();
-    await downloadFile(filename, blob, 'application/x-pkcs12');
+    await loadResources();
   } catch (err) {
     toast(err.message, true);
+    return;
+  }
+  if (state.keys.length === 0) {
+    toast('暂无本地私钥，请先到「证书工具」页生成或导入私钥', true);
+    return;
+  }
+  state.p12Cert = cert;
+  $('asc-p12-cert').value = `${cert.displayName || '未命名证书'}（序列号 ${cert.serialNumber || '-'}）`;
+  fillSelect(
+    $('asc-p12-key'),
+    '请选择私钥',
+    state.keys.map((k) => ({ value: k.keyId, label: k.remark ? `${k.remark} · ${k.commonName}` : k.commonName })),
+  );
+  $('asc-p12-key').value = '';
+  $('asc-p12-password').value = '';
+  const hintEl = $('asc-p12-hint');
+  hintEl.classList.add('hidden');
+  $('asc-p12-error').classList.add('hidden');
+  $('asc-p12-modal').classList.remove('hidden');
+
+  // 自动匹配签发该证书的私钥（后端按公钥模数比对），成功则预选下拉
+  try {
+    const data = await api(`/api/asc-certs/${encodeURIComponent(cert.id)}/match-key?configId=${encodeURIComponent(state.configId)}`);
+    if (data.keyId) {
+      $('asc-p12-key').value = data.keyId;
+      return;
+    }
+    hintEl.textContent = '未能自动匹配到签发该证书的私钥，请在上方手动选择（选错会合成失败）';
+    hintEl.classList.remove('hidden');
+  } catch (err) {
+    hintEl.textContent = `自动匹配私钥失败（${err.message}），请手动选择`;
+    hintEl.classList.remove('hidden');
   }
 }
 
 /**
- * 删除本地已备份的 p12 文件
- * @param {string} filename 备份文件名
- * @param {HTMLButtonElement} button 触发按钮
+ * 关闭「下载 .p12」弹框并清空提示
+ * @returns {void}
+ */
+function closeP12Modal() {
+  $('asc-p12-modal').classList.add('hidden');
+  $('asc-p12-hint').classList.add('hidden');
+  $('asc-p12-error').classList.add('hidden');
+}
+
+/**
+ * 提交重新合成请求并下载 .p12（Apple 在线证书 + 所选本地私钥实时合成）
  * @returns {Promise<void>}
  */
-async function deleteBackup(filename, button) {
-  const ok = confirm(`确定删除本地备份文件「${filename}」吗？删除后无法恢复。`);
-  if (!ok) {
+async function submitP12Download() {
+  const cert = state.p12Cert;
+  if (!cert) {
+    return;
+  }
+  const keyId = $('asc-p12-key').value;
+  const password = $('asc-p12-password').value;
+  const errorEl = $('asc-p12-error');
+  if (!keyId) {
+    toast('请选择本地私钥', true);
+    return;
+  }
+  if (password && password.length < 6) {
+    toast('p12 导出密码至少 6 位', true);
+    $('asc-p12-password').focus();
     return;
   }
   try {
-    await withLoading(button, '删除中...', async () => {
-      await api(`/api/asc-certs/backups/${encodeURIComponent(filename)}`, { method: 'DELETE' });
-      toast('备份文件已删除');
-      await loadBackupList();
+    await withLoading($('btn-asc-p12-submit'), '合成中…', async () => {
+      const response = await fetch(`/api/asc-certs/${encodeURIComponent(cert.id)}/p12`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configId: state.configId, keyId, password }),
+      });
+      const blob = await response.blob();
+      if (blob.type.includes('application/json')) {
+        const data = JSON.parse(await blob.text());
+        throw new Error(data.error || `合成失败（HTTP ${response.status}）`);
+      }
+      if (!response.ok) {
+        throw new Error(`合成失败（HTTP ${response.status}）`);
+      }
+      const keyEntry = state.keys.find((k) => k.keyId === keyId);
+      const safeRemark = ((keyEntry && keyEntry.remark) || '').replace(/[\\/:*?"<>|]/g, '');
+      const typeLabelPart = /_DEVELOPMENT$/.test(cert.certificateType) ? 'dev' : 'release';
+      const nameParts = [safeRemark, typeLabelPart].filter(Boolean).join('-');
+      await downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate-redownloaded.p12', blob);
+      closeP12Modal();
+      toast('.p12 已重新合成并下载');
     });
   } catch (err) {
-    toast(err.message, true);
+    errorEl.textContent = err.message;
+    errorEl.classList.remove('hidden');
   }
 }
 
@@ -421,9 +473,6 @@ export function init() {
     }
     withLoading(event.currentTarget, '刷新中...', loadCertList);
   });
-  $('btn-backup-refresh').addEventListener('click', (event) => {
-    withLoading(event.currentTarget, '刷新中...', loadBackupList);
-  });
   $('btn-asc-issue-open').addEventListener('click', () => {
     openIssueModal();
   });
@@ -435,10 +484,14 @@ export function init() {
     submitIssue();
   });
   $('btn-asc-issue-cancel').addEventListener('click', closeIssueModal);
+  $('btn-asc-p12-submit').addEventListener('click', () => {
+    submitP12Download();
+  });
+  $('btn-asc-p12-cancel').addEventListener('click', closeP12Modal);
 }
 
 /**
- * 切换到本页时触发：首次加载配置/私钥资源并默认选中第一个配置，之后每次刷新列表与备份
+ * 切换到本页时触发：首次加载配置/私钥资源并默认选中第一个配置，之后每次刷新列表
  * @returns {Promise<void>}
  */
 export async function onShown() {
@@ -455,5 +508,4 @@ export async function onShown() {
   if (state.configId) {
     await loadCertList();
   }
-  await loadBackupList();
 }

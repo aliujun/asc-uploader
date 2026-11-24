@@ -331,6 +331,33 @@ async function removeKey(keyId) {
   return true;
 }
 
+/**
+ * 在本地私钥列表中查找与证书公钥配对的私钥（按模数与指数比对，即签发该证书时用的那把）
+ * @param {string} cerContent 证书内容（PEM 或 DER Base64，ASC 的 certificateContent）
+ * @param {Array<{keyId: string}>} keys 私钥条目列表
+ * @returns {Promise<string|null>} 配对私钥的 keyId；证书无法解析或无配对私钥时返回 null
+ */
+async function matchKeyForCertificate(cerContent, keys) {
+  let cert;
+  try {
+    cert = parseCer(cerContent);
+  } catch {
+    return null;
+  }
+  for (const entry of keys) {
+    try {
+      const privateKeyPem = await readPrivateKeyPem(entry.keyId);
+      const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+      if (isKeyPairMatched(privateKey, cert)) {
+        return entry.keyId;
+      }
+    } catch {
+      // 单个私钥解析失败（文件损坏等）时跳过，继续匹配其它私钥
+    }
+  }
+  return null;
+}
+
 module.exports = {
   createKeyPairAndCsr,
   createCsrFromExistingKey,
@@ -338,6 +365,7 @@ module.exports = {
   importP12,
   listKeys,
   buildP12,
+  matchKeyForCertificate,
   describeCer,
   removeKey,
 };

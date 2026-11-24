@@ -9,7 +9,6 @@ const SUB_DIRS = {
   keys: 'keys',
   certs: 'certs',
   ipaCache: 'ipa-cache',
-  backups: 'backups',
 };
 
 /**
@@ -47,7 +46,7 @@ function getDir(name) {
  * @returns {Promise<void>}
  */
 async function ensureDirs() {
-  const targets = [getDir(), getDir('keys'), getDir('certs'), getDir('ipaCache'), getDir('backups')];
+  const targets = [getDir(), getDir('keys'), getDir('certs'), getDir('ipaCache')];
   await Promise.all(targets.map((dir) => fs.mkdir(dir, { recursive: true })));
 }
 
