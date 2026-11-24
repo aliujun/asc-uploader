@@ -1,6 +1,6 @@
 /* 配置管理组件：网络代理设置、API 配置增删改验、配置表单弹窗 */
 import {
-  $, api, bindEnter, confirmModal, escapeHtml, fillSelect, toast, withLoading,
+  $, api, bindEnter, confirmModal, escapeHtml, fillSelect, fmtSize, toast, withLoading,
 } from './common.js';
 import { onConfigsChanged } from './upload.js';
 import { loadConnectivityInfo } from './connectivity.js';
@@ -72,6 +72,10 @@ export const template = `<section id="tab-configs" class="tab-panel">
                         <label id="cf-p8-label">.p8 私钥内容<span class="req">*</span></label>
                         <textarea id="cf-p8" rows="6"
                             placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <label class="file-label"><span id="cf-p8-file-name">选择 .p8 文件</span><input type="file"
+                                id="cf-p8-file" accept=".p8" hidden></label>
                     </div>
                     <p id="config-form-error" class="error hidden"></p>
                     <div class="form-actions">
@@ -348,6 +352,15 @@ export function init() {
   $('btn-new-config').onclick = () => openConfigForm(null);
   $('cf-cancel').onclick = () => $('config-form-modal').classList.add('hidden');
   $('cf-save').onclick = () => withLoading($('cf-save'), '保存中...', saveConfigForm);
+
+  $('cf-p8-file').addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file) {
+      return;
+    }
+    $('cf-p8').value = (await file.text()).trim();
+    $('cf-p8-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
+  });
 
   $('btn-save-proxy').onclick = () => withLoading($('btn-save-proxy'), '保存中...', saveSettings);
   $('btn-clear-ipa-cache').onclick = async () => {
