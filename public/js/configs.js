@@ -183,7 +183,6 @@ async function deleteConfig(config) {
   try {
     await api(`/api/configs/${config.id}`, { method: 'DELETE' });
     await loadConfigs();
-    toast('已删除');
   } catch (err) {
     toast(err.message, true);
   }
@@ -248,7 +247,6 @@ async function saveConfigForm() {
     }
     $('config-form-modal').classList.add('hidden');
     await loadConfigs();
-    toast('配置已保存');
   } catch (err) {
     showFormError(err.message);
   }
@@ -340,7 +338,6 @@ async function clearProxy() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ proxyUrl: '' }),
     });
-    toast('已清空代理，恢复直连');
     loadConnectivityInfo();
   } catch (err) {
     toast(err.message, true);
@@ -363,7 +360,6 @@ export function init() {
     }
     $('cf-p8').value = (await file.text()).trim();
     $('cf-p8-file-name').textContent = `已选 ${file.name}（${fmtSize(file.size)}）`;
-    toast(`已读取 ${file.name}`);
   });
 
   $('btn-save-proxy').onclick = () => withLoading($('btn-save-proxy'), '保存中...', saveSettings);

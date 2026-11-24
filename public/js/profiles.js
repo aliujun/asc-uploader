@@ -427,7 +427,6 @@ async function deleteProfile(profile) {
     await api(`/api/profiles/${encodeURIComponent(profile.id)}?configId=${encodeURIComponent(state.configId)}`, {
       method: 'DELETE',
     });
-    toast('描述文件已删除');
     loadProfileList();
   } catch (err) {
     toast(err.message, true);
@@ -467,7 +466,6 @@ async function submitCreate() {
         const envLabel = firstCert ? certEnvLabel(firstCert.certificateType) : '';
         await downloadFile(envLabel ? `${safeName}_${envLabel}.mobileprovision` : `${safeName}.mobileprovision`, blob);
         closeCreateModal();
-        toast('描述文件已生成');
       } catch (downloadErr) {
         // 描述文件已生成无法回滚：关弹窗提示稍后在列表中下载
         closeCreateModal();

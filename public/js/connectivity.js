@@ -1,5 +1,5 @@
 /* 连通性组件：网络出口显示、Apple 服务器连通性测试 */
-import { $, api, escapeHtml, toast, withLoading } from './common.js';
+import { $, api, escapeHtml, withLoading } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '连通性';
@@ -59,8 +59,6 @@ async function runConnectivityTest() {
         <thead><tr><th>目标</th><th>状态</th><th>HTTP 状态码</th><th>延迟</th><th>错误信息</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
-    const allOk = data.results.every((r) => r.ok);
-    toast(allOk ? '全部目标连通正常' : '存在不通的目标，请检查代理配置', !allOk);
   } catch (err) {
     wrap.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
   } finally {

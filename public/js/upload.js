@@ -320,7 +320,6 @@ async function submitTask(ignorePrecheckWarning = false) {
       }),
     });
     subscribeTask(task.id);
-    toast('任务已提交');
     loadTaskHistory();
     resetUploadSelection();
   } catch (err) {
@@ -517,7 +516,6 @@ export async function loadTaskHistory() {
         withLoading(event.currentTarget, '删除中...', async () => {
           try {
             await api(`/api/tasks/${btn.dataset.remove}`, { method: 'DELETE' });
-            toast('任务记录已删除');
             await loadTaskHistory();
           } catch (err) {
             toast(err.message, true);
@@ -539,7 +537,6 @@ async function retryTask(taskId) {
   try {
     await api(`/api/tasks/${taskId}/retry`, { method: 'POST' });
     subscribeTask(taskId);
-    toast('已重新入队');
     // 同步刷新历史列表，避免残留上一次的"失败"状态
     loadTaskHistory();
   } catch (err) {

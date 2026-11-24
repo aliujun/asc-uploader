@@ -265,9 +265,6 @@ async function generateP12() {
 		const typeLabel = info.certType === 'development' ? 'dev' : info.certType === 'distribution' ? 'release' : '';
 		const nameParts = [safeRemark, typeLabel].filter(Boolean).join('-');
 		downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate.p12', blob);
-		if (!inputPassword) {
-			toast('p12 已合成（未填密码，默认密码 123456）');
-		}
 	} catch (err) {
 		toast(err.message, true);
 	}
@@ -367,7 +364,6 @@ export function init() {
 				}
 				$('cert-cer').value = btoa(binary);
 			}
-			toast(`已读取 ${file.name}`);
 		} catch (err) {
 			toast(`读取文件失败：${err.message}`, true);
 		}

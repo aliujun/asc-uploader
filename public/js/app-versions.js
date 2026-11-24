@@ -297,7 +297,6 @@ export function init() {
         } else {
           await loadVersions();
         }
-        toast('已刷新');
       } catch (err) {
         toast(`刷新失败：${err.message}`, true);
       }

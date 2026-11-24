@@ -298,9 +298,7 @@ async function submitAdd() {
         const successCount = (res.results || []).filter((r) => r.ok).length;
         const failCount = devices.length - successCount;
         closeAddModal();
-        if (failCount === 0) {
-          toast(`批量注册成功，共 ${successCount} 台设备`);
-        } else {
+        if (failCount > 0) {
           toast(`注册完成：成功 ${successCount} 台，失败 ${failCount} 台（详情可在列表核对）`, true);
         }
         loadDeviceList();
@@ -327,7 +325,6 @@ async function submitAdd() {
         body: JSON.stringify({ configId: state.configId, name, platform, udid }),
       });
       closeAddModal();
-      toast('设备注册成功');
       loadDeviceList();
     });
   } catch (err) {

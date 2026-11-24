@@ -409,7 +409,6 @@ async function submitEdit() {
       const failed = (data.results || []).filter((result) => !result.ok);
       if (failed.length === 0) {
         closeEditModal();
-        toast('修改已保存');
         return;
       }
       const detail = failed
@@ -486,7 +485,6 @@ async function submitAdd() {
       await loadIdentifierList();
       if (failed.length === 0) {
         closeAddModal();
-        toast(`App ID「${form.identifier}」已注册`);
         return;
       }
       // App ID 已创建无法回滚：弹窗保留并展示失败的能力，列表已刷新
@@ -512,7 +510,6 @@ async function deleteIdentifier(item) {
     await api(`/api/identifiers/${encodeURIComponent(item.id)}?configId=${encodeURIComponent(state.configId)}`, {
       method: 'DELETE',
     });
-    toast('App ID 已删除');
     loadIdentifierList();
   } catch (err) {
     toast(err.message, true);
