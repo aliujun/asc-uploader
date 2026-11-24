@@ -19,41 +19,52 @@ const state = {
 /** 列表加载请求序号（防快速切换配置时的响应竞态） */
 let listReqSeq = 0;
 
-/** 常用能力清单（新建弹框勾选项）：capabilityType → 中文短名 */
+/** 常用能力清单（新建弹框勾选项）：capabilityType → 官网英文显示名（与 Apple Developer 后台 Capabilities 列表一致） */
 const COMMON_CAPABILITIES = [
-  { type: 'PUSH_NOTIFICATIONS', label: '推送通知' },
-  { type: 'APP_GROUPS', label: 'App Groups（App 群组）' },
-  { type: 'ASSOCIATED_DOMAINS', label: '关联域（Universal Links）' },
-  { type: 'APPLE_ID_AUTH', label: 'Sign in with Apple' },
+  { type: 'PUSH_NOTIFICATIONS', label: 'Push Notifications' },
+  { type: 'APP_GROUPS', label: 'App Groups' },
+  { type: 'ASSOCIATED_DOMAINS', label: 'Associated Domains' },
+  { type: 'APPLE_ID_AUTH', label: 'Sign In with Apple' },
   { type: 'ICLOUD', label: 'iCloud' },
-  { type: 'HEALTHKIT', label: 'HealthKit（健康数据）' },
-  { type: 'HOMEKIT', label: 'HomeKit（家庭）' },
-  { type: 'NFC_TAG_READING', label: 'NFC 标签读取' },
+  { type: 'HEALTHKIT', label: 'HealthKit' },
+  { type: 'HOMEKIT', label: 'HomeKit' },
+  { type: 'NFC_TAG_READING', label: 'NFC Tag Reading' },
 ];
 
-/** 能力类型 → 展示短名（未知能力原样返回），与弹框清单保持一致 */
+/** 能力类型 → 官网英文显示名（未知能力转为空格分隔的英文词），与弹框清单保持一致 */
 const CAPABILITY_LABELS = new Map(COMMON_CAPABILITIES.map((item) => [item.type, item.label]));
 
-/** 能力类型 → 展示短名（未知能力原样返回）：弹框可勾选的常用项 + 列表展示用的其余常见项 */
+/** 列表/编辑弹框展示用的其余常见能力（官网英文显示名） */
 const EXTRA_CAPABILITY_LABELS = {
-  IN_APP_PURCHASE: 'App 内购买',
+  IN_APP_PURCHASE: 'In-App Purchase',
   APPLE_PAY: 'Apple Pay',
   GAME_CENTER: 'Game Center',
-  DATA_PROTECTION: '数据保护',
-  MAPS: '地图',
-  WALLET: '钱包（Passbook）',
-  NETWORK_EXTENSIONS: '网络扩展',
-  WIFI_ACCESSORY: '无线配件配置',
-  ICLOUD_VERSION: 'iCloud（旧版）',
+  DATA_PROTECTION: 'Data Protection',
+  MAPS: 'Maps',
+  WALLET: 'Wallet',
+  NETWORK_EXTENSIONS: 'Network Extensions',
+  WIFI_ACCESSORY: 'Access Wi-Fi Information',
+  ICLOUD_VERSION: 'iCloud (Legacy)',
 };
 
 /**
  * 能力类型的展示文案
  * @param {string} capabilityType ASC capabilityType 枚举
- * @returns {string} 中文短名，未知时原样返回
+ * @returns {string} 官网英文显示名；无映射时将下划线枚举转为空格分隔的首字母大写词（贴近官网风格）
  */
 function capabilityLabel(capabilityType) {
-  return CAPABILITY_LABELS.get(capabilityType) || EXTRA_CAPABILITY_LABELS[capabilityType] || capabilityType;
+  if (CAPABILITY_LABELS.has(capabilityType)) {
+    return CAPABILITY_LABELS.get(capabilityType);
+  }
+  if (EXTRA_CAPABILITY_LABELS[capabilityType]) {
+    return EXTRA_CAPABILITY_LABELS[capabilityType];
+  }
+  return (capabilityType || '')
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 /**
