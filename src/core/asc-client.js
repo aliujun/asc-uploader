@@ -483,6 +483,65 @@ class AscClient {
   }
 
   /**
+   * 创建 App ID（显式 Bundle ID，不支持通配符）
+   * @param {string} name 名称
+   * @param {string} identifier Bundle ID 标识（如 com.example.app）
+   * @param {string} platform 平台（IOS / MAC_OS / SERVICES / UNIVERSAL）
+   * @returns {Promise<Object>} ASC bundleIds 响应
+   */
+  async createBundleId(name, identifier, platform) {
+    const body = {
+      data: {
+        type: 'bundleIds',
+        attributes: { name, identifier, platform },
+      },
+    };
+    return this.request('POST', '/v1/bundleIds', { body });
+  }
+
+  /**
+   * 删除 App ID（会连带使其关联描述文件失效，不可恢复）
+   * @param {string} bundleIdResourceId App ID 资源 ID
+   * @returns {Promise<null>} 成功返回 null（204）
+   */
+  async deleteBundleId(bundleIdResourceId) {
+    return this.request('DELETE', `/v1/bundleIds/${bundleIdResourceId}`);
+  }
+
+  /**
+   * 获取指定 App ID 已启用的能力列表
+   * @param {string} bundleIdResourceId App ID 资源 ID
+   * @returns {Promise<Object>} ASC bundleIdCapabilities 响应
+   */
+  async listBundleIdCapabilities(bundleIdResourceId) {
+    return this.request('GET', `/v1/bundleIdCapabilities?filter%5BbundleId%5D=${encodeURIComponent(bundleIdResourceId)}`);
+  }
+
+  /**
+   * 为 App ID 启用一项能力（部分能力需要 options，如 APPLE_ID_AUTH 需 isPrimaryAppId）
+   * @param {string} bundleIdResourceId App ID 资源 ID
+   * @param {string} capabilityType 能力类型（如 PUSH_NOTIFICATIONS / APP_GROUPS）
+   * @param {Object} [options] 能力附加选项
+   * @returns {Promise<Object>} ASC bundleIdCapabilities 响应
+   */
+  async enableCapability(bundleIdResourceId, capabilityType, options) {
+    const attributes = { capabilityType };
+    if (options && Object.keys(options).length > 0) {
+      attributes.options = options;
+    }
+    const body = {
+      data: {
+        type: 'bundleIdCapabilities',
+        attributes,
+        relationships: {
+          bundleId: { data: { type: 'bundleIds', id: bundleIdResourceId } },
+        },
+      },
+    };
+    return this.request('POST', '/v1/bundleIdCapabilities', { body });
+  }
+
+  /**
    * 创建描述文件
    * @param {string} bundleIdResourceId App ID 资源 ID
    * @param {string[]} certificateIds 证书资源 ID 列表

@@ -22,6 +22,7 @@ function createApp() {
   app.use('/api/asc-certs', require('./routes/asc-certs'));
   app.use('/api/profiles', require('./routes/profiles'));
   app.use('/api/devices', require('./routes/devices'));
+  app.use('/api/identifiers', require('./routes/identifiers'));
   app.use('/api/connectivity', require('./routes/connectivity'));
   app.use('/api/expiry-overview', require('./routes/expiry-overview'));
   app.use('/api/app-versions', require('./routes/app-versions'));
