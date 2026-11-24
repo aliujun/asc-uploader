@@ -255,7 +255,9 @@ async function generateP12() {
 		const typeLabel = info.certType === 'development' ? 'dev' : info.certType === 'distribution' ? 'release' : '';
 		const nameParts = [safeRemark, typeLabel].filter(Boolean).join('-');
 		downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate.p12', blob);
-		toast(inputPassword ? 'p12 已合成并开始下载' : 'p12 已合成（未填密码，默认密码 123456）');
+		if (!inputPassword) {
+			toast('p12 已合成（未填密码，默认密码 123456）');
+		}
 	} catch (err) {
 		toast(err.message, true);
 	}
