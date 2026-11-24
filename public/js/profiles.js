@@ -47,7 +47,7 @@ export const template = `<section id="tab-profiles" class="tab-panel">
             </div>
 
             <div id="profile-create-modal" class="modal hidden">
-                <div class="modal-box wide">
+                <div class="modal-box">
                     <h3>生成描述文件</h3>
                     <div class="form-row">
                         <label>ASC 配置<span class="req">*</span></label>
