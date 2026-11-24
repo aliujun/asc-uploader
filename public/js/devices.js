@@ -27,7 +27,7 @@ export const template = `<section id="tab-devices" class="tab-panel">
                 <ol class="steps">
                     <li>UDID 获取方式：iOS 设备可连接电脑后在 Xcode「Devices and Simulators」查看，或访问 udid.io 等在线工具页获取。</li>
                     <li>Apple 对每年新增设备数量有配额限制（会员类型不同配额不同），超限注册会被拒绝。</li>
-                    <li>设备的删除与停用仅支持在 <b>Apple Developer 官网</b>（Certificates, Identifiers &amp; Profiles → Devices）操作，工具暂不提供。</li>
+                    <li>设备的删除与停用仅支持在 <a href="https://developer.apple.com/account/resources/devices/list" target="_blank" rel="noopener"><b>Apple Developer 官网</b></a>（Certificates, Identifiers &amp; Profiles → Devices）操作，工具暂不提供。</li>
                     <li>注册成功后即可在「描述文件」页生成 Ad Hoc / 开发描述文件时勾选该设备。</li>
                 </ol>
             </div>

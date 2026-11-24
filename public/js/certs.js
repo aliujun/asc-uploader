@@ -1,6 +1,8 @@
 /* 证书工具组件：CSR 生成、p12 导入提取、.cer 合成 p12、本地私钥管理 */
 import { gotoIssue } from './asc-certs.js';
-import { $, api, bindEnter, confirmModal, downloadFile, escapeHtml, fmtSize, toast, withLoading } from './common.js';
+import {
+  $, api, bindEnter, confirmModal, dangerConfirmOptions, downloadFile, escapeHtml, fmtSize, formatDate, toast, typeLabel, withLoading,
+} from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '证书工具';
@@ -174,16 +176,48 @@ export async function loadCertKeys() {
         </div>
         <button class="small danger" data-key="${k.keyId}">删除</button>`;
 			row.querySelector('[data-key]').onclick = async (event) => {
+				const btn = event.currentTarget;
 				const label = k.remark || k.commonName;
-				const goOn = await confirmModal({
+				// 删除前先查询引用（绑定的 ASC 配置 + 该私钥签发的证书），在确认弹窗中展示以提升警示
+				btn.disabled = true;
+				const originalText = btn.textContent;
+				btn.textContent = '查询引用...';
+				let refs;
+				try {
+					refs = await api(`/api/certs/keys/${k.keyId}/refs`);
+				} catch (err) {
+					toast(`引用查询失败：${err.message}`, true);
+					btn.disabled = false;
+					btn.textContent = originalText;
+					return;
+				}
+				btn.disabled = false;
+				btn.textContent = originalText;
+				const parts = [];
+				if (refs.certs.length > 0) {
+					const items = refs.certs.map((c) => `${escapeHtml(typeLabel(c.certificateType))} ${escapeHtml(c.displayName || c.serialNumber)}（到期 ${escapeHtml(formatDate(c.expirationDate))}）`).join('<br>');
+					parts.push(`<b>由它签发的证书（${refs.certs.length} 张）</b>：<br>${items}<br><span class="muted">删除后这些证书将无法再重新合成 .p12，且 CSR 也无法复用</span>`);
+				}
+				if ((refs.errors || []).length > 0) {
+					parts.push(`<span class="muted">部分配置的证书查询失败：${escapeHtml(refs.errors.join('；'))}</span>`);
+				}
+				const warning = parts.length > 0
+					? `<b class="error">该私钥仍被以下内容引用，删除后相关功能将受影响：</b><br><br>${parts.join('<br><br>')}<br><br>`
+					: '未发现引用它的 ASC 配置或已签发证书。<br><br>';
+				const first = await confirmModal({
 					title: '删除私钥',
-					message: `确定删除私钥「${label}」？删除后无法再为它合成 p12。`,
-					confirmText: '删除',
+					message: `${warning}确定要继续删除私钥「${escapeHtml(label)}」吗？`,
+					html: true,
+					confirmText: '继续删除',
 				});
+				if (!first) {
+					return;
+				}
+				const goOn = await confirmModal(dangerConfirmOptions('删除私钥', '删除', label));
 				if (!goOn) {
 					return;
 				}
-				withLoading(event.currentTarget, '删除中...', async () => {
+				withLoading(btn, '删除中...', async () => {
 					try {
 						await api(`/api/certs/keys/${k.keyId}`, { method: 'DELETE' });
 						loadCertKeys();

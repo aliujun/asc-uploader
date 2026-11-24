@@ -20,8 +20,6 @@ export const template = `<section id="tab-configs" class="tab-panel">
                     <button id="btn-save-proxy" class="primary">保存</button>
                     <button id="btn-clear-proxy">清空代理</button>
                 </div>
-                <p class="muted">数据目录（配置、密钥、IPA 缓存均存放于此）：<code id="data-dir">-</code></p>
-                <p class="muted"><button id="btn-clear-ipa-cache" class="small">清理 IPA 缓存</button> <span class="muted">删除未被进行中任务引用的本地 IPA 缓存文件</span></p>
             </div>
             <div class="card">
                 <h2>配置列表 <button id="btn-new-config" class="small primary">新增配置</button></h2>
@@ -37,6 +35,15 @@ export const template = `<section id="tab-configs" class="tab-panel">
                         <li>注意区分：.p12 分发证书用于签名（本工具“证书工具”页可生成）、App 专用密码是旧版 altool 用的，均不能用于此处。</li>
                     </ol>
                 </details>
+            </div>
+
+            <div class="card">
+                <h2>数据目录与存储</h2>
+                <p class="muted">配置、密钥、IPA 缓存均存放于：<code id="data-dir">-</code></p>
+                <div class="form-row inline">
+                    <button id="btn-clear-ipa-cache" class="small">清理 IPA 缓存</button>
+                    <span class="muted">仅删除未被进行中任务引用的本地 IPA 缓存文件（历史任务回看与重试依赖缓存，请谨慎清理）</span>
+                </div>
             </div>
 
             <div id="config-form-modal" class="modal hidden">
@@ -167,17 +174,29 @@ function bindConfigAction(item, action, handler) {
 }
 
 /**
- * 删除配置
+ * 删除配置（两道确认：先展示删除影响，再要求输入配置名称才能执行）
  * @param {Object} config 配置
  * @returns {Promise<void>}
  */
 async function deleteConfig(config) {
-  const goOn = await confirmModal({
+  const name = config.name || config.id;
+  const first = await confirmModal({
     title: '删除配置',
-    message: `确定删除配置「${config.name}」吗？其 .p8 密钥文件将一并删除。`,
-    confirmText: '删除',
+    message: `<b class="error">即将删除 ASC 配置「${escapeHtml(name)}」：</b><br><br>● 该配置将无法再生成 JWT 调用 ASC API<br>● 使用该配置的上传任务将无法再刷新状态<br>● .p8 私钥内容将被清除，恢复需重新粘贴<br><br>确定要继续吗？`,
+    html: true,
+    confirmText: '继续删除',
   });
-  if (!goOn) {
+  if (!first) {
+    return;
+  }
+  const second = await confirmModal({
+    title: '二次确认',
+    message: `<b class="error">此操作不可恢复！</b>请输入配置名称以确认删除：`,
+    html: true,
+    confirmText: '永久删除',
+    requireText: name,
+  });
+  if (!second) {
     return;
   }
   try {
@@ -203,6 +222,9 @@ function openConfigForm(config) {
   $('cf-issuer').value = config ? config.issuerId : '';
   $('cf-keyid').value = config ? config.keyId : '';
   $('cf-p8').value = '';
+  // 同步重置文件选择入口，避免上次会话的「已选 xxx.p8」残留到下一次打开
+  $('cf-p8-file').value = '';
+  $('cf-p8-file-name').textContent = '选择 .p8 文件';
   $('config-form-error').classList.add('hidden');
   $('config-form-modal').classList.remove('hidden');
   $('cf-name').focus();

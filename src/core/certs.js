@@ -79,13 +79,53 @@ async function createKeyPairAndCsr(commonName, remark = '') {
 }
 
 /**
+ * 判断两把 RSA 私钥是否为同一把（按模数与指数比对，跨 PKCS#1/PKCS#8/p12 提取等格式）
+ * @param {forge.pki.rsa.KeyPair['privateKey']|null} a 私钥对象
+ * @param {forge.pki.rsa.KeyPair['privateKey']|null} b 私钥对象
+ * @returns {boolean} 是否相同
+ */
+function sameRsaKey(a, b) {
+  if (!a || !b || !a.n || !a.e || !b.n || !b.e) {
+    return false;
+  }
+  return a.n.compareTo(b.n) === 0 && a.e.compareTo(b.e) === 0;
+}
+
+/**
+ * 在已存条目中查找与指定私钥相同的条目
+ * @param {forge.pki.rsa.KeyPair['privateKey']} privateKey 待比对的私钥对象
+ * @param {Array<Object>} keys 已存条目索引
+ * @returns {Promise<Object|null>} 相同的条目，无则返回 null
+ */
+async function findDuplicateKey(privateKey, keys) {
+  for (const entry of keys) {
+    let storedPem;
+    try {
+      storedPem = await fs.readFile(path.join(getDir('certs'), `${entry.keyId}.key.pem`), 'utf8');
+    } catch {
+      continue;
+    }
+    let storedKey;
+    try {
+      storedKey = forge.pki.privateKeyFromPem(storedPem);
+    } catch {
+      continue;
+    }
+    if (sameRsaKey(privateKey, storedKey)) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+/**
  * 导入外部生成的私钥（如之前在 Mac 钥匙串/openssl 生成的 .key/.pem），
  * 与本地生成的私钥统一管理
  * @param {string} privateKeyPem 私钥 PEM 文本（PKCS#1 或 PKCS#8）
  * @param {string} remark 所属项目备注（必填）
  * @param {string} [commonName] 通用名称，缺省自动生成
  * @returns {Promise<{keyId: string, commonName: string, remark: string, createdAt: string}>}
- * @throws {Error} 备注为空、私钥无法解析或不支持的私钥格式时抛出
+ * @throws {Error} 备注为空、私钥无法解析、不支持的私钥格式，或本地已存在同一把私钥时抛出
  */
 async function importPrivateKey(privateKeyPem, remark, commonName = '') {
   if (!remark || typeof remark !== 'string') {
@@ -94,10 +134,16 @@ async function importPrivateKey(privateKeyPem, remark, commonName = '') {
   if (!privateKeyPem || typeof privateKeyPem !== 'string') {
     throw new Error('私钥内容不能为空');
   }
+  let privateKey;
   try {
-    forge.pki.privateKeyFromPem(privateKeyPem);
+    privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
   } catch {
     throw new Error('私钥无法解析：请确认选择的是私钥文件（以 -----BEGIN PRIVATE KEY----- 或 -----BEGIN RSA PRIVATE KEY----- 开头）。加密的私钥暂不支持导入');
+  }
+  const duplicate = await findDuplicateKey(privateKey, await loadIndex());
+  if (duplicate) {
+    const addedAt = new Date(duplicate.createdAt).toLocaleString('zh-CN');
+    throw new Error(`本地已存在同一把私钥：「${duplicate.remark || duplicate.commonName}」（${duplicate.commonName}，添加于 ${addedAt}），无法重复导入`);
   }
   const keyId = crypto.randomUUID();
   const entry = {
@@ -358,6 +404,24 @@ async function matchKeyForCertificate(cerContent, keys) {
   return null;
 }
 
+/**
+ * 判断私钥与证书是否配对（按模数与指数比对，即该证书是否由这把私钥签发）
+ * @param {string} privateKeyPem 私钥 PEM 文本
+ * @param {string} cerContent 证书内容（PEM 或 DER Base64）
+ * @returns {boolean} 配对返回 true；任一方解析失败返回 false
+ */
+function isKeyMatched(privateKeyPem, cerContent) {
+  let privateKey;
+  let cert;
+  try {
+    privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+    cert = parseCer(cerContent);
+  } catch {
+    return false;
+  }
+  return isKeyPairMatched(privateKey, cert);
+}
+
 module.exports = {
   createKeyPairAndCsr,
   createCsrFromExistingKey,
@@ -366,6 +430,8 @@ module.exports = {
   listKeys,
   buildP12,
   matchKeyForCertificate,
+  isKeyMatched,
+  readPrivateKeyPem,
   describeCer,
   removeKey,
 };

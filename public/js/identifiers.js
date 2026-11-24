@@ -1,6 +1,6 @@
 /* App ID 管理组件：Identifiers 列表（含已启用能力徽章）、新建显式 App ID（可勾选常用能力）、删除 */
 import {
-  $, api, confirmModal, escapeHtml, fillSelect, toast, withLoading,
+  $, api, confirmModal, dangerConfirmOptions, escapeHtml, fillSelect, formatDate, toast, withLoading,
 } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
@@ -120,6 +120,20 @@ function renderCapBadges(container, item, expanded) {
 function platformLabel(platform) {
   const map = { IOS: 'iOS', MAC_OS: 'macOS', SERVICES: 'Services', UNIVERSAL: '通用' };
   return map[platform] || platform || '-';
+}
+
+/**
+ * 描述文件类型的展示文案（用于删除确认弹窗中的引用清单）
+ * @param {string} profileType 描述文件类型枚举
+ * @returns {string} 展示文案
+ */
+function profileTypeText(profileType) {
+  const map = {
+    IOS_APP_ADHOC: 'Ad Hoc',
+    IOS_APP_DEVELOPMENT: 'Development',
+    IOS_APP_STORE: 'App Store',
+  };
+  return map[profileType] || profileType || '-';
 }
 
 /** 页面模板 */
@@ -258,16 +272,44 @@ function renderIdentifierList() {
       openEditModal(item);
     };
     row.querySelector('[data-act="delete"]').onclick = async (event) => {
+      const btn = event.currentTarget;
       const label = item.name || item.id;
-      const goOn = await confirmModal({
+      // 删除前先查询引用（使用该 App ID 的描述文件），在确认弹窗中展示以提升警示
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = '查询引用...';
+      let refs;
+      try {
+        refs = await api(`/api/identifiers/${encodeURIComponent(item.id)}/refs?configId=${encodeURIComponent(state.configId)}`);
+      } catch (err) {
+        toast(`引用查询失败：${err.message}`, true);
+        btn.disabled = false;
+        btn.textContent = originalText;
+        return;
+      }
+      btn.disabled = false;
+      btn.textContent = originalText;
+      let messageHtml;
+      if (refs.profiles.length > 0) {
+        const items = refs.profiles.map((p) => `${escapeHtml(profileTypeText(p.profileType))}「${escapeHtml(p.name)}」，到期 ${escapeHtml(formatDate(p.expirationDate))}`).join('<br>');
+        messageHtml = `<b class="error">该 App ID 仍被 ${refs.profiles.length} 个描述文件引用，删除后它们将立即失效：</b><br><br>${items}<br><br>删除立即生效且不可恢复，确定删除 App ID「${escapeHtml(label)}」（${escapeHtml(item.identifier || '-')}）？`;
+      } else {
+        messageHtml = `未发现引用它的描述文件。<br><br>删除立即生效且不可恢复，确定删除 App ID「${escapeHtml(label)}」（${escapeHtml(item.identifier || '-')}）？`;
+      }
+      const first = await confirmModal({
         title: '删除 App ID',
-        message: `确定删除 App ID「${label}」（${item.identifier || '-'}）？\n删除后立即生效且不可恢复，使用该 App ID 的描述文件会随之失效。`,
-        confirmText: '删除',
+        message: messageHtml,
+        html: true,
+        confirmText: '继续删除',
       });
+      if (!first) {
+        return;
+      }
+      const goOn = await confirmModal(dangerConfirmOptions('删除 App ID', '删除', item.identifier || label));
       if (!goOn) {
         return;
       }
-      withLoading(event.currentTarget, '删除中...', () => deleteIdentifier(item));
+      withLoading(btn, '删除中...', () => deleteIdentifier(item));
     };
     wrap.appendChild(row);
   });

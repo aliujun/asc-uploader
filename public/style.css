@@ -714,6 +714,21 @@ table.builds td.conn-error {
 	line-height: 1.7;
 	white-space: pre-line;
 }
+
+/* 公共确认弹窗的输入确认区（requireText 模式）：输入框 + 复制按钮 */
+.modal-box .confirm-input-row {
+	margin: 12px 0 0;
+	display: flex;
+	gap: 8px;
+}
+
+.modal-box .confirm-input {
+	width: 100%;
+}
+
+.modal-box .confirm-copy {
+	flex-shrink: 0;
+}
 textarea {
 	resize: none;
 }

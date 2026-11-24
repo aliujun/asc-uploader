@@ -245,6 +245,38 @@ router.patch('/:id', async (req, res) => {
 });
 
 /**
+ * GET /api/identifiers/:id/refs?configId= 查询 App ID 的引用情况：使用它的描述文件清单
+ * @returns {void}
+ */
+router.get('/:id/refs', async (req, res) => {
+  const { configId } = req.query;
+  const { id } = req.params;
+  if (!configId) {
+    sendError(res, 400, '缺少 configId 参数');
+    return;
+  }
+  try {
+    const data = await createClient(configId).listProfiles();
+    const refs = (data.data || [])
+      .filter((item) => {
+        const rel = item.relationships || {};
+        return rel.bundleId && rel.bundleId.data && rel.bundleId.data.id === id;
+      })
+      .map((item) => {
+        const attributes = item.attributes || {};
+        return {
+          name: attributes.name || '',
+          profileType: attributes.profileType || '',
+          expirationDate: attributes.expirationDate || '',
+        };
+      });
+    res.json({ profiles: refs });
+  } catch (err) {
+    sendError(res, err.status || 500, err.message);
+  }
+});
+
+/**
  * DELETE /api/identifiers/:id?configId= 删除 App ID（连带使关联描述文件失效，不可恢复）
  * @returns {void}
  */

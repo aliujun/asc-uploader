@@ -120,12 +120,72 @@ async function readP8(fileName) {
 }
 
 /**
+ * 规范化 PEM 文本（统一换行、去行尾空白与空行），用于内容比对
+ * @param {string} pem PEM 原始文本
+ * @returns {string} 规范化后的文本
+ */
+function normalizePem(pem) {
+  return String(pem).replace(/\r\n/g, '\n').split('\n').map((l) => l.trim()).filter(Boolean).join('\n');
+}
+
+/**
+ * 计算 .p8 私钥内容指纹（SHA-256），同一把密钥的文件内容一致即视为相同
+ * @param {string} p8Content p8 私钥 PEM 文本
+ * @returns {string} 指纹十六进制串
+ */
+function p8Fingerprint(p8Content) {
+  return crypto.createHash('sha256').update(normalizePem(p8Content), 'utf8').digest('hex');
+}
+
+/**
+ * 构造「重复密钥」错误（HTTP 409）
+ * @param {Object} duplicate 命中的已存配置条目
+ * @returns {Error} 带 status 的错误对象
+ */
+function duplicateP8Error(duplicate) {
+  const err = new Error(`该 .p8 私钥已添加为配置「${duplicate.name}」，无法重复添加`);
+  err.status = 409;
+  return err;
+}
+
+/**
+ * 在已存配置中查找使用同一把 .p8 私钥的条目
+ * @param {string} p8Content 待比对的 p8 私钥 PEM 文本
+ * @param {Array<Object>} configs 已存配置列表
+ * @param {string} [excludeId] 需要排除的配置 ID（更新自身时传入）
+ * @returns {Promise<Object|null>} 命中的配置条目，无则返回 null
+ */
+async function findDuplicateP8(p8Content, configs, excludeId = '') {
+  const fingerprint = p8Fingerprint(p8Content);
+  for (const item of configs) {
+    if (item.id === excludeId) {
+      continue;
+    }
+    let stored;
+    try {
+      stored = await readP8(item.keyFile);
+    } catch {
+      continue;
+    }
+    if (p8Fingerprint(stored) === fingerprint) {
+      return item;
+    }
+  }
+  return null;
+}
+
+/**
  * 新增一条配置
  * @param {Object} body {name, issuerId, keyId, p8Content}
  * @returns {Promise<Object>} 新建后的配置（不含 p8 内容）
+ * @throws {Error} 本地已存在使用同一把 .p8 的配置时抛出（HTTP 409）
  */
 async function create(body) {
   const data = await load();
+  const duplicate = await findDuplicateP8(body.p8Content, data.configs);
+  if (duplicate) {
+    throw duplicateP8Error(duplicate);
+  }
   const keyFile = await writeP8(body.p8Content);
   const item = {
     id: newId(),
@@ -145,6 +205,7 @@ async function create(body) {
  * @param {string} id 配置 ID
  * @param {Object} body {name, issuerId, keyId, p8Content?}
  * @returns {Promise<Object|null>} 更新后的配置，未找到返回 null
+ * @throws {Error} 替换的 .p8 与其他配置重复时抛出（HTTP 409）
  */
 async function update(id, body) {
   const data = await load();
@@ -156,6 +217,10 @@ async function update(id, body) {
   item.issuerId = body.issuerId || item.issuerId;
   item.keyId = body.keyId || item.keyId;
   if (body.p8Content) {
+    const duplicate = await findDuplicateP8(body.p8Content, data.configs, id);
+    if (duplicate) {
+      throw duplicateP8Error(duplicate);
+    }
     const oldFile = item.keyFile;
     item.keyFile = await writeP8(body.p8Content);
     await removeP8(oldFile);

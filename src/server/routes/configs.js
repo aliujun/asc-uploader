@@ -43,7 +43,7 @@ router.post('/', async (req, res) => {
     const item = await store.create(req.body);
     res.json({ id: item.id });
   } catch (err) {
-    sendError(res, 500, err.message);
+    sendError(res, err.status || 500, err.message);
   }
 });
 
@@ -65,7 +65,7 @@ router.put('/:id', async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err) {
-    sendError(res, 500, err.message);
+    sendError(res, err.status || 500, err.message);
   }
 });
 

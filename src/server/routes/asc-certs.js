@@ -135,6 +135,48 @@ router.post('/', async (req, res) => {
 });
 
 /**
+ * GET /api/asc-certs/:certId/refs?configId= 查询证书的引用情况：
+ * 拉取描述文件列表（含 certificates 关联），找出使用该证书签名的描述文件清单
+ * @returns {void}
+ */
+router.get('/:certId/refs', async (req, res) => {
+  const { configId } = req.query;
+  const { certId } = req.params;
+  if (!configId) {
+    sendError(res, 400, '缺少 configId 参数');
+    return;
+  }
+  try {
+    const data = await createClient(configId).listProfiles();
+    const includedMap = new Map();
+    (data.included || []).forEach((item) => {
+      includedMap.set(`${item.type}/${item.id}`, item.attributes || {});
+    });
+    const refs = (data.data || [])
+      .filter((item) => {
+        const rel = item.relationships || {};
+        const certRefs = (rel.certificates && rel.certificates.data) || [];
+        return certRefs.some((ref) => ref.id === certId);
+      })
+      .map((item) => {
+        const attributes = item.attributes || {};
+        const rel = item.relationships || {};
+        const bundleIdRef = rel.bundleId && rel.bundleId.data && rel.bundleId.data.id;
+        const bundleAttrs = bundleIdRef ? (includedMap.get(`bundleIds/${bundleIdRef}`) || {}) : {};
+        return {
+          name: attributes.name || '',
+          profileType: attributes.profileType || '',
+          expirationDate: attributes.expirationDate || '',
+          bundleId: bundleAttrs.identifier || '',
+        };
+      });
+    res.json({ profiles: refs });
+  } catch (err) {
+    sendError(res, err.status || 500, err.message);
+  }
+});
+
+/**
  * DELETE /api/asc-certs/:certId?configId= 吊销证书（立即生效，不可恢复）
  * @returns {void}
  */

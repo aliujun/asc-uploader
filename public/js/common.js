@@ -296,6 +296,10 @@ function ensureConfirmModal() {
     <div class="modal-box">
       <h3 class="confirm-title"></h3>
       <p class="confirm-message muted"></p>
+      <div class="confirm-input-row hidden">
+        <input class="confirm-input" autocomplete="off" spellcheck="false">
+        <button type="button" class="small confirm-copy">复制名称</button>
+      </div>
       <div class="form-actions">
         <button class="confirm-ok danger">确认</button>
         <button class="confirm-cancel">取消</button>
@@ -306,7 +310,11 @@ function ensureConfirmModal() {
     modal,
     titleEl: modal.querySelector('.confirm-title'),
     messageEl: modal.querySelector('.confirm-message'),
+    inputRow: modal.querySelector('.confirm-input-row'),
+    inputEl: modal.querySelector('.confirm-input'),
+    copyBtn: modal.querySelector('.confirm-copy'),
     okBtn: modal.querySelector('.confirm-ok'),
+    requireText: '',
     settle: null,
   };
   const finish = (result) => {
@@ -315,6 +323,22 @@ function ensureConfirmModal() {
     }
   };
   ctx.okBtn.addEventListener('click', () => finish(true));
+  // requireText 模式下输入完全匹配前保持确认按钮禁用
+  ctx.inputEl.addEventListener('input', () => {
+    ctx.okBtn.disabled = ctx.requireText ? ctx.inputEl.value.trim() !== ctx.requireText : false;
+  });
+  // 复制待输入的确认文本（长名称免手打）
+  ctx.copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(ctx.requireText);
+      ctx.copyBtn.textContent = '已复制';
+      setTimeout(() => {
+        ctx.copyBtn.textContent = '复制名称';
+      }, 1500);
+    } catch {
+      toast('复制失败，请手动选择复制', true);
+    }
+  });
   modal.querySelector('.confirm-cancel').addEventListener('click', () => finish(false));
   modal.addEventListener('click', (event) => {
     if (event.target === modal) {
@@ -330,7 +354,7 @@ function ensureConfirmModal() {
       finish(false);
       return;
     }
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !ctx.okBtn.disabled) {
       event.preventDefault();
       finish(true);
     }
@@ -340,16 +364,37 @@ function ensureConfirmModal() {
 }
 
 /**
+ * 组装二次确认弹窗参数（要求输入「我确定删除XXX」式完整警示语句才能执行）
+ * @param {string} title 弹窗标题
+ * @param {string} verb 动作词（如「删除」「吊销」）
+ * @param {string} text 资源名称，拼入警示语句
+ * @returns {Object} confirmModal 参数对象
+ */
+export function dangerConfirmOptions(title, verb, text) {
+  const sentence = `我确定${verb}${text}`;
+  return {
+    title,
+    // 警示语句只在输入框 placeholder 中展示一次（配合复制按钮），正文不再重复
+    message: '<b class="error">此操作立即生效且不可恢复！</b><br><br>请输入下方语句以确认：',
+    html: true,
+    confirmText: `永久${verb}`,
+    requireText: sentence,
+  };
+}
+
+/**
  * 公共确认弹窗（替代原生 confirm，样式与站内弹窗一致；Enter 确认、Esc 或遮罩点击取消）
  * @param {Object} options 配置项
  * @param {string} [options.title='确认操作'] 弹窗标题
- * @param {string} [options.message=''] 提示内容（\n 会换行显示）
+ * @param {string} [options.message=''] 提示内容（\n 会换行显示；html 为 true 时作为 HTML 渲染）
+ * @param {boolean} [options.html=false] 是否将 message 按 HTML 渲染（用于展示引用清单等富文本警示，调用方需自行转义动态内容）
  * @param {string} [options.confirmText='确认'] 确认按钮文案
  * @param {boolean} [options.danger=true] 是否危险操作（确认按钮红色，否则用主色）
+ * @param {string} [options.requireText=''] 需要用户输入的确认文本（如资源名称），输入完全匹配前确认按钮禁用；非空时显示输入框
  * @returns {Promise<boolean>} 确认返回 true，取消返回 false
  */
 export function confirmModal(options) {
-  const { title = '确认操作', message = '', confirmText = '确认', danger = true } = options || {};
+  const { title = '确认操作', message = '', html = false, confirmText = '确认', danger = true, requireText = '' } = options || {};
   const ctx = ensureConfirmModal();
   return new Promise((resolve) => {
     // 后到的确认请求直接顶掉前一个（前一个按取消结算），避免双重弹窗叠加
@@ -362,12 +407,27 @@ export function confirmModal(options) {
       resolve(result);
     };
     ctx.titleEl.textContent = title;
-    ctx.messageEl.textContent = message;
+    if (html) {
+      ctx.messageEl.innerHTML = message;
+    } else {
+      ctx.messageEl.textContent = message;
+    }
     ctx.okBtn.textContent = confirmText;
     ctx.okBtn.classList.toggle('danger', danger);
     ctx.okBtn.classList.toggle('primary', !danger);
+    // 输入确认模式：清空输入并禁用确认按钮，直至输入完全匹配
+    ctx.requireText = requireText;
+    if (requireText) {
+      ctx.inputRow.classList.remove('hidden');
+      ctx.inputEl.value = '';
+      ctx.inputEl.placeholder = `输入「${requireText}」以确认`;
+      ctx.okBtn.disabled = true;
+    } else {
+      ctx.inputRow.classList.add('hidden');
+      ctx.okBtn.disabled = false;
+    }
     ctx.modal.classList.remove('hidden');
-    ctx.okBtn.focus();
+    (requireText ? ctx.inputEl : ctx.okBtn).focus();
   });
 }
 

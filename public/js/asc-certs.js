@@ -1,5 +1,5 @@
 /* 证书管理组件：ASC API 证书列表、签发（自动合成 p12 下载）、吊销；到期监控统一在到期总览页 */
-import { $, api, confirmModal, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, platformText, toast, typeLabel, withLoading } from './common.js';
+import { $, api, confirmModal, dangerConfirmOptions, downloadFile, escapeHtml, expiryBadgeHtml, fillSelect, formatDate, platformText, toast, typeLabel, withLoading } from './common.js';
 
 /** 组件标题（导航按钮文案唯一事实源） */
 export const title = '证书管理';
@@ -298,18 +298,59 @@ async function submitIssue() {
 }
 
 /**
- * 吊销证书（二次确认后调用 ASC API，成功后刷新列表；请求期间按钮进入加载态防重复点击）
+ * 描述文件类型的展示文案（用于吊销确认弹窗中的引用清单）
+ * @param {string} profileType 描述文件类型枚举
+ * @returns {string} 展示文案
+ */
+function profileTypeText(profileType) {
+  const map = {
+    IOS_APP_ADHOC: 'Ad Hoc',
+    IOS_APP_DEVELOPMENT: 'Development',
+    IOS_APP_STORE: 'App Store',
+  };
+  return map[profileType] || profileType || '-';
+}
+
+/**
+ * 吊销证书（先查询引用该证书的描述文件，二次确认后调用 ASC API）
  * @param {Object} cert 证书条目
  * @param {HTMLButtonElement} button 触发吊销的按钮元素
  * @returns {Promise<void>}
  */
 async function revokeCert(cert, button) {
 	const label = cert.displayName || cert.serialNumber || cert.id;
-	const goOn = await confirmModal({
+	// 吊销前先查询引用（使用该证书签名的描述文件），在确认弹窗中展示以提升警示
+	button.disabled = true;
+	const originalText = button.textContent;
+	button.textContent = '查询引用...';
+	let refs;
+	try {
+		refs = await api(`/api/asc-certs/${encodeURIComponent(cert.id)}/refs?configId=${encodeURIComponent(state.configId)}`);
+	} catch (err) {
+		toast(`引用查询失败：${err.message}`, true);
+		button.disabled = false;
+		button.textContent = originalText;
+		return;
+	}
+	button.disabled = false;
+	button.textContent = originalText;
+	let messageHtml;
+	if (refs.profiles.length > 0) {
+		const items = refs.profiles.map((p) => `${escapeHtml(profileTypeText(p.profileType))}「${escapeHtml(p.name)}」${p.bundleId ? `（${escapeHtml(p.bundleId)}）` : ''}，到期 ${escapeHtml(formatDate(p.expirationDate))}`).join('<br>');
+		messageHtml = `<b class="error">该证书仍被 ${refs.profiles.length} 个描述文件引用，吊销后它们将立即失效：</b><br><br>${items}<br><br>吊销立即生效且不可恢复，确定吊销证书「${escapeHtml(label)}」（序列号 ${escapeHtml(cert.serialNumber || '-')}）？`;
+	} else {
+		messageHtml = `未发现引用它的描述文件。<br><br>吊销立即生效且不可恢复，确定吊销证书「${escapeHtml(label)}」（序列号 ${escapeHtml(cert.serialNumber || '-')}）？`;
+	}
+	const first = await confirmModal({
 		title: '吊销证书',
-		message: `确定吊销证书「${label}」（序列号 ${cert.serialNumber || '-'}）？\n吊销后立即失效且不可恢复，使用该证书签名的描述文件将随之失效。`,
-		confirmText: '吊销'
+		message: messageHtml,
+		html: true,
+		confirmText: '继续吊销',
 	});
+	if (!first) {
+		return;
+	}
+	const goOn = await confirmModal(dangerConfirmOptions('吊销证书', '吊销', label));
 	if (!goOn) {
 		return;
 	}

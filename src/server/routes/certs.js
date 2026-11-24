@@ -2,6 +2,8 @@
 
 const express = require('express');
 const certs = require('../../core/certs');
+const store = require('../../config/store');
+const { createClient } = require('../../core/asc-client');
 
 const router = express.Router();
 
@@ -110,6 +112,63 @@ router.post('/keys/:keyId/p12', async (req, res) => {
     const status = err.message.includes('不存在') ? 404 : 400;
     sendError(res, status, err.message);
   }
+});
+
+/**
+ * GET /api/certs/keys/:keyId/refs 查询私钥的引用情况：
+ * 遍历全部 ASC 配置拉取证书列表，按公钥配对找出由该私钥签发的证书
+ * （ASC 配置存有独立的 p8 内容副本，不依赖本地私钥条目；真正的依赖是签发出来的证书）
+ * @returns {void}
+ */
+router.get('/keys/:keyId/refs', async (req, res) => {
+  const { keyId } = req.params;
+  if (!keyId) {
+    sendError(res, 400, '缺少私钥条目 ID');
+    return;
+  }
+  let privateKeyPem;
+  try {
+    privateKeyPem = await certs.readPrivateKeyPem(keyId);
+  } catch {
+    sendError(res, 404, '私钥条目不存在');
+    return;
+  }
+  let configs = [];
+  try {
+    const data = await store.listSafe();
+    configs = data.configs || [];
+  } catch (err) {
+    sendError(res, 500, err.message);
+    return;
+  }
+  // 逐配置拉取证书列表，按公钥配对找出该私钥签发的证书（serialNumber 去重，多配置同账号场景）
+  const certRefs = [];
+  const seenSerials = new Set();
+  const errors = [];
+  for (const cfg of configs) {
+    try {
+      const data = await createClient(cfg.id).listCertificates();
+      for (const item of data.data || []) {
+        const serial = item.attributes.serialNumber || item.id;
+        if (seenSerials.has(serial)) {
+          continue;
+        }
+        if (certs.isKeyMatched(privateKeyPem, item.attributes.certificateContent || '')) {
+          seenSerials.add(serial);
+          certRefs.push({
+            configName: cfg.name,
+            displayName: item.attributes.displayName || '',
+            certificateType: item.attributes.certificateType || '',
+            serialNumber: serial,
+            expirationDate: item.attributes.expirationDate || '',
+          });
+        }
+      }
+    } catch (err) {
+      errors.push(`${cfg.name}：${err.message}`);
+    }
+  }
+  res.json({ configs: configs.length, certs: certRefs, errors });
 });
 
 /**
