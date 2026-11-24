@@ -509,12 +509,13 @@ class AscClient {
   }
 
   /**
-   * 获取指定 App ID 已启用的能力列表
+   * 获取指定 App ID 已启用的能力列表（官方嵌套子资源端点；
+   * 老式 /v1/bundleIdCapabilities?filter[bundleId]= 集合端点已不被允许 GET）
    * @param {string} bundleIdResourceId App ID 资源 ID
    * @returns {Promise<Object>} ASC bundleIdCapabilities 响应
    */
   async listBundleIdCapabilities(bundleIdResourceId) {
-    return this.request('GET', `/v1/bundleIdCapabilities?filter%5BbundleId%5D=${encodeURIComponent(bundleIdResourceId)}`);
+    return this.request('GET', `/v1/bundleIds/${encodeURIComponent(bundleIdResourceId)}/bundleIdCapabilities`);
   }
 
   /**
