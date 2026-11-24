@@ -444,7 +444,6 @@ async function submitP12Download() {
       const nameParts = [safeRemark, typeLabelPart].filter(Boolean).join('-');
       await downloadFile(nameParts ? `certificate-${nameParts}.p12` : 'certificate-redownloaded.p12', blob);
       closeP12Modal();
-      toast('.p12 已重新合成并下载');
     });
   } catch (err) {
     errorEl.textContent = err.message;
